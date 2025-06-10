@@ -110,7 +110,7 @@ tasks:
       print("🆔 Execution ID: " + lead_data['execution_id'])
       
       # Exportar dados via stdout (sintaxe correta Kestra)
-      print(f'::{json.dumps({"outputs": {"lead_data": lead_data}})}::')
+      print('::{"outputs": ' + json.dumps({"lead_data": lead_data}) + '}::')
 
   # FASE 2: Envio de Mensagem de Boas-vindas WhatsApp
   - id: send-welcome-whatsapp
@@ -146,7 +146,7 @@ tasks:
         
         CURL_EXIT_CODE=$?
         set -e # Reabilitar 'exit on error'
-
+        
         echo "Resposta: $RESPONSE"
         
         # Verificar se o curl falhou
@@ -223,7 +223,7 @@ tasks:
           "confidence": confidence
       }
       
-      print(f'::{json.dumps({"outputs": {"classification_result": classification_result}})}::')
+      print('::{"outputs": ' + json.dumps({"classification_result": classification_result}) + '}::')
 
   # FASE 4: Consulta de Planos Disponíveis
   - id: get-available-plans
@@ -287,7 +287,7 @@ tasks:
               "error": str(e)
           }
       
-      print(f'::{json.dumps({"outputs": {"plans_result": plans_data}})}::')
+      print('::{"outputs": ' + json.dumps({"plans_result": plans_data}) + '}::')
 
   # FASE 5: Processamento OCR da Fatura
   - id: process-invoice-ocr
@@ -311,7 +311,7 @@ tasks:
           "is_qualified": True
       }
 
-      print(f'::{json.dumps({"outputs": {"ocr_result": ocr_data}})}::')
+      print('::' + json.dumps({"outputs": {"ocr_result": ocr_data}}) + '::', flush=True)
       print("📄 Processamento OCR simulado concluído.")
 
   # FASE 6: Validar Dados e Enviar Template "Prosseguir"
@@ -425,4 +425,4 @@ errors:
       }
       
       print("⚠️  Workflow finalizado com erros - revisão manual necessária")
-      print(f'::{json.dumps({"outputs": {"error_report": error_report}})}::') 
+      print('::' + json.dumps({"outputs": {"error_report": error_report}}) + '::') 

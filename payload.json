@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "lead_name": "Teste Docker Socket",
+    "lead_email": "teste@example.com",
+    "lead_phone": "+5511999999999",
+    "valor_conta_luz": "200",
+    "tipo_cliente": "residencial",
+    "cidade": "São Paulo"
+  }
+} 

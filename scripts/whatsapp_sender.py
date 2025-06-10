@@ -160,23 +160,20 @@ async def send_welcome_message(request: WhatsAppWelcomeRequest):
                 detail="Phone number must include country code (e.g., +5511999999999)"
             )
         
-        # Template components with lead name
-        # For hello_world template, typically no parameters needed
-        # But if your template has {{1}} placeholder, use this structure:
-        components = []
-        
-        # If your template has body parameters, uncomment this:
-        # components = [
-        #     {
-        #         "type": "body",
-        #         "parameters": [
-        #             {
-        #                 "type": "text",
-        #                 "text": request.name
-        #             }
-        #         ]
-        #     }
-        # ]
+        # Extrair o primeiro nome do lead
+        first_name = request.name.split()[0] if request.name else ""
+        # Montar components para template com {{1}}
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": first_name
+                    }
+                ]
+            }
+        ]
         
         # Send WhatsApp template message
         result = await send_whatsapp_template_message(

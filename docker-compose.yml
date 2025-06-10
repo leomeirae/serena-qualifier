@@ -43,11 +43,12 @@ services:
     image: kestra/kestra:latest
     container_name: kestra
     command: ["server", "local"]
+    user: root
     ports:
       - "8080:8080"
     volumes:
-      # Docker socket para task runners
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Mapeia o caminho REAL do Docker socket no macOS para o caminho esperado no contêiner
+      - /Users/user/.docker/run/docker.sock:/var/run/docker.sock
       # Workflows locais (opcional)
       - ./kestra/workflows:/app/workflows:ro
     environment:
@@ -65,6 +66,8 @@ services:
       
       # Timezone
       TZ: America/Recife
+      KESTRA_PLUGINS_REPOSITORIES_CENTRAL_URL: https://repo1.maven.org/maven2/
+      KESTRA_PLUGINS_CONFIGURATIONS_0_TYPE: io.kestra.plugin:plugin-docker:LATEST
     
     networks:
       - kestra-network
@@ -137,3 +140,9 @@ services:
       retries: 3
     profiles:
       - whatsapp 
+
+  kestra-python-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.python_runner
+    image: serena/kestra-python-runner:latest 
