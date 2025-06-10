@@ -1,0 +1,9 @@
+{
+  "inputs": {
+    "lead_name": "Leonardo",
+    "lead_email": "leonardo@email.com",
+    "lead_phone": "+5581997498268",
+    "valor_conta_luz": "180",
+    "cidade": "Recife"
+  }
+} 

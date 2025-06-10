@@ -1,0 +1,54 @@
+FROM python:3.11-slim
+
+# Metadados
+LABEL maintainer="Serena Energia"
+LABEL description="WhatsApp API Service for Kestra Integration"
+
+# Variáveis de ambiente
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Criar usuário não-root
+RUN adduser --disabled-password --gecos '' appuser
+
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Definir diretório de trabalho
+WORKDIR /app
+
+# Copiar requirements
+COPY requirements.txt .
+
+# Instalar dependências Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código da aplicação
+COPY scripts/ ./scripts/
+COPY utils/ ./utils/
+COPY main.py .
+
+# Mudar proprietário para appuser
+RUN chown -R appuser:appuser /app
+
+# Criar e dar permissão para a pasta de dados
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
+
+# Mudar para usuário não-root
+USER appuser
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Exposer porta
+EXPOSE 8000
+
+# Comando para iniciar
+CMD ["uvicorn", "scripts.whatsapp_sender:app", "--host", "0.0.0.0", "--port", "8000"] 

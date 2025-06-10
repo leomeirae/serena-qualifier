@@ -1,0 +1,256 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --serena-red: #ff5247;
+  --serena-darkred: #e50d00;
+  --serena-green: #31caa1;
+  --serena-lightgreen: #5ee3c0;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white text-gray-900 font-sans;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold text-gray-900;
+  }
+
+  h1 {
+    @apply text-3xl md:text-4xl lg:text-5xl leading-tight;
+  }
+
+  h2 {
+    @apply text-2xl md:text-3xl lg:text-4xl;
+  }
+
+  h3 {
+    @apply text-xl md:text-2xl;
+  }
+
+  a {
+    @apply transition-all duration-200;
+  }
+}
+
+@layer components {
+  .container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .btn-serena {
+    @apply inline-flex items-center justify-center px-6 py-4 text-base font-medium rounded-full shadow-serena transition-all duration-300 focus:outline-none;
+  }
+
+  .btn-serena-primary {
+    @apply bg-primary-500 hover:bg-primary-600 text-white;
+  }
+
+  .btn-serena-secondary {
+    @apply bg-secondary-400 hover:bg-secondary-500 text-white;
+  }
+
+  .card-serena {
+    @apply bg-white p-6 md:p-8 rounded-xl shadow-serena border border-gray-100 hover:shadow-serena-lg transition-all duration-300;
+  }
+
+  .section-title {
+    @apply text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-4;
+  }
+
+  .section-subtitle {
+    @apply text-lg text-gray-700 max-w-3xl mx-auto mb-12;
+  }
+
+  .highlight {
+    @apply text-primary-500 font-bold;
+  }
+
+  .benefit-item {
+    @apply flex items-center mb-3;
+  }
+
+  .benefit-dot {
+    @apply w-2 h-2 bg-primary-500 rounded-full mr-2 flex-shrink-0;
+  }
+
+  .hero {
+    position: relative;
+    width: 100%;
+    min-height: 100vh; /* Altura mínima para mobile */
+    background-image: url('/images/responsive/bg-over.webp'); /* Imagem de fundo para mobile */
+    background-position: center right; /* Ajustado para mostrar melhor a figura humana */
+    background-size: cover;
+    background-repeat: no-repeat;
+    display: flex;
+    align-items: flex-start; /* Alinhamento no topo para mobile */
+    overflow: hidden;
+    padding: 1rem 0 2rem; /* Espaço adicional na parte inferior para mobile */
+  }
+
+  @media (min-width: 768px) {
+    .hero {
+      height: 90vh; /* Altura para desktop */
+      min-height: auto;
+      align-items: center; /* Centraliza conteúdo verticalmente em desktop */
+      background-image: url('/images/11192024_GB_SERENA_5768-1-alterado-scaled.avif'); /* Imagem de fundo para desktop */
+      background-position: 85% center; /* ajustado mais para a direita para mostrar melhor a figura humana */
+      padding: 2rem 0; /* Ajuste do padding para desktop */
+    }
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.65); /* Overlay escuro com 65% de opacidade para melhor contraste */
+    z-index: 1;
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    padding: 1rem; /* Padding para mobile */
+  }
+
+  @media (min-width: 768px) {
+    .hero-content {
+      padding: 2rem; /* Padding para desktop */
+    }
+  }
+
+  /* Ajustes para garantir que a imagem de fundo fique visível no mobile */
+  @media (max-width: 767px) {
+    .hero {
+      background-position: 70% center; /* Ajusta a posição da imagem para mostrar melhor a figura humana no mobile */
+      min-height: 100vh; /* Altura mínima para garantir que a imagem seja visível */
+    }
+
+    .form-container {
+      margin-bottom: 2rem;
+      width: 100%;
+      z-index: 3; /* Garante que o formulário fique acima da imagem */
+    }
+
+    .content-container {
+      width: 100%;
+      z-index: 2;
+      margin-top: 1rem;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .form-container {
+      max-width: 450px;
+      width: 100%;
+    }
+
+    .content-container {
+      max-width: 550px;
+      width: 100%;
+    }
+  }
+
+  .hero-title {
+    color: #FFFFFF;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8); /* Sombra mais forte para melhor legibilidade */
+    font-size: 2.25rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+    padding-top: 1rem; /* Adicionado padding superior para evitar corte */
+  }
+
+  @media (min-width: 768px) {
+    .hero-title {
+      font-size: 3rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .hero-title {
+      font-size: 3.5rem;
+    }
+  }
+
+  .hero-subtitle {
+    color: #FFFFFF; /* Branco puro para melhor contraste */
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8); /* Sombra mais forte */
+    font-size: 1.125rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .hero-benefit {
+    margin-left: 0.5rem;
+    color: #FFFFFF; /* Branco puro para melhor contraste */
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8); /* Sombra mais forte */
+  }
+}
+
+/* Animações */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Melhorias de imagem */
+img {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Melhorias de responsividade */
+@media (max-width: 640px) {
+  h1 {
+    font-size: 1.875rem !important;
+    line-height: 2.25rem !important;
+  }
+
+  h2 {
+    font-size: 1.5rem !important;
+    line-height: 2rem !important;
+  }
+
+  p, label, input, button, .text-xs, .text-sm {
+    font-size: 1rem !important;
+  }
+
+  /* Garantir botões grandes e fáceis de clicar em mobile */
+  button,
+  [type="button"],
+  [type="submit"] {
+    min-height: 44px;
+    padding: 12px 16px;
+  }
+
+  /* Melhorar espaçamento entre elementos do formulário */
+  .space-y-4 > * {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  /* Melhorar contraste e legibilidade */
+  input, select, textarea {
+    font-size: 16px !important; /* Evitar zoom automático em iOS */
+  }
+}
