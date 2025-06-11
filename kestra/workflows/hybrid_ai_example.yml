@@ -1,0 +1,230 @@
+id: hybrid-ai-conversation
+namespace: serena.energia
+description: "Exemplo de workflow híbrido: Plugin OpenAI para tarefas simples, Python para lógica complexa"
+
+inputs:
+  - id: phone_number
+    type: STRING
+    required: true
+  - id: user_message
+    type: STRING
+    required: true
+
+tasks:
+  # TASK 1: Classificação Simples com Plugin Nativo
+  - id: classify-intention-native
+    type: io.kestra.plugin.openai.ChatCompletion
+    apiKey: "{{ secret('OPENAI_API_KEY') }}"
+    model: "gpt-4o-mini"
+    temperature: 0.1
+    maxTokens: 50
+    messages:
+      - role: system
+        content: |
+          Você é um classificador de intenções para energia solar.
+          Responda APENAS com uma das opções:
+          - informou_cidade
+          - informou_valor_conta  
+          - informou_tipo_imovel
+          - fez_pergunta_geral
+          - pediu_para_parar
+          - incompreensivel
+      - role: user
+        content: "Classifique: {{ inputs.user_message }}"
+
+  # TASK 2: Extração de Dados (Python - mais complexo)
+  - id: extract-data-python
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      PHONE: "{{ inputs.phone_number }}"
+      MESSAGE: "{{ inputs.user_message }}"
+      INTENTION: "{{ outputs['classify-intention-native'].choices[0].message.content }}"
+    script: |
+      import sys
+      sys.path.append('.')
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.ai_agent import process_ai_request
+      from utils.conversation_manager import manage_conversation
+      import os
+      import json
+      
+      phone = os.getenv("PHONE")
+      message = os.getenv("MESSAGE")
+      intention = os.getenv("INTENTION", "").strip().lower()
+      
+      print(f"🔍 Extraindo dados para intenção: {intention}")
+      
+      # Determinar tipo de extração
+      extraction_map = {
+          "informou_cidade": "cidade",
+          "informou_valor_conta": "valor_conta",
+          "informou_tipo_imovel": "tipo_imovel"
+      }
+      
+      extracted_data = {}
+      
+      if intention in extraction_map:
+          data_type = extraction_map[intention]
+          
+          # Usar nossa função Python customizada para extração complexa
+          result = process_ai_request(
+              phone_number=phone,
+              message=message,
+              action="extract",
+              data_type=data_type
+          )
+          
+          extracted_data = result
+          print(f"📊 Dados extraídos: {result.get('extracted_value', 'N/A')}")
+          
+          # Salvar no histórico usando nossa lógica customizada
+          if result.get('success'):
+              manage_conversation(
+                  action="add_message",
+                  phone_number=phone,
+                  role="user",
+                  content=message,
+                  metadata={
+                      "intention": intention,
+                      "extracted_data": result
+                  }
+              )
+      else:
+          print(f"ℹ️ Intenção '{intention}' não requer extração")
+      
+      print('::' + json.dumps({"outputs": {"extracted_data": extracted_data}}) + '::')
+
+  # TASK 3: Resposta Simples com Plugin Nativo (para perguntas gerais)
+  - id: simple-response-native
+    type: io.kestra.plugin.openai.ChatCompletion
+    apiKey: "{{ secret('OPENAI_API_KEY') }}"
+    model: "gpt-4o-mini"
+    temperature: 0.7
+    maxTokens: 200
+    when: "{{ outputs['classify-intention-native'].choices[0].message.content == 'fez_pergunta_geral' }}"
+    messages:
+      - role: system
+        content: |
+          Você é Serena, assistente especializada em energia solar.
+          Responda de forma amigável e informativa sobre energia solar.
+          Mantenha respostas concisas (máximo 2-3 frases).
+          Sempre direcione para coleta de dados: cidade, valor da conta, tipo de imóvel.
+      - role: user
+        content: "{{ inputs.user_message }}"
+
+  # TASK 4: Resposta Complexa com Python (para fluxo de qualificação)
+  - id: complex-response-python
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    when: "{{ outputs['classify-intention-native'].choices[0].message.content != 'fez_pergunta_geral' }}"
+    env:
+      PHONE: "{{ inputs.phone_number }}"
+      MESSAGE: "{{ inputs.user_message }}"
+      INTENTION: "{{ outputs['classify-intention-native'].choices[0].message.content }}"
+      EXTRACTED_DATA: "{{ outputs['extract-data-python'].vars.extracted_data | json }}"
+    script: |
+      import sys
+      sys.path.append('.')
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.ai_agent import process_ai_request
+      from utils.conversation_manager import manage_conversation
+      import os
+      import json
+      
+      phone = os.getenv("PHONE")
+      message = os.getenv("MESSAGE")
+      intention = os.getenv("INTENTION", "").strip()
+      extracted_data = json.loads(os.getenv("EXTRACTED_DATA", "{}"))
+      
+      print(f"🤖 Gerando resposta complexa para: {intention}")
+      
+      # Obter dados de qualificação atual
+      qualification_data = manage_conversation(
+          action="get_qualification",
+          phone_number=phone
+      )
+      
+      # Preparar contexto rico para resposta
+      ai_context = {
+          "intention": intention,
+          "extracted_data": extracted_data,
+          "qualification_data": qualification_data,
+          "conversation_stage": "active",
+          "use_complex_prompts": True
+      }
+      
+      # Usar nossa lógica Python customizada para resposta contextualizada
+      response_result = process_ai_request(
+          phone_number=phone,
+          message=message,
+          action="respond",
+          context=ai_context
+      )
+      
+      ai_response = response_result.get("response", "Desculpe, houve um problema.")
+      
+      print(f"💬 Resposta: {ai_response[:100]}...")
+      
+      print('::' + json.dumps({"outputs": {"ai_response": ai_response}}) + '::')
+
+  # TASK 5: Consolidar e Enviar Resposta
+  - id: send-final-response
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      PHONE: "{{ inputs.phone_number }}"
+      SIMPLE_RESPONSE: "{{ outputs['simple-response-native'].choices[0].message.content | default('') }}"
+      COMPLEX_RESPONSE: "{{ outputs['complex-response-python'].vars.ai_response | default('') }}"
+    script: |
+      import os
+      import json
+      import requests
+      
+      phone = os.getenv("PHONE")
+      simple_response = os.getenv("SIMPLE_RESPONSE", "")
+      complex_response = os.getenv("COMPLEX_RESPONSE", "")
+      
+      # Determinar qual resposta usar
+      final_response = simple_response if simple_response else complex_response
+      
+      if not final_response:
+          final_response = "Desculpe, não consegui processar sua mensagem. Pode tentar novamente?"
+      
+      print(f"📱 Enviando resposta final para {phone}")
+      print(f"💬 Resposta: {final_response[:100]}...")
+      
+      # Enviar via WhatsApp
+      try:
+          whatsapp_url = "http://whatsapp-service:8000/whatsapp/send_text_message"
+          payload = {
+              "phone": phone,
+              "message": final_response
+          }
+          
+          response = requests.post(whatsapp_url, json=payload, timeout=30)
+          response.raise_for_status()
+          
+          result = response.json()
+          print(f"✅ Mensagem enviada! ID: {result.get('message_id', 'N/A')}")
+          
+      except Exception as e:
+          print(f"❌ Erro ao enviar: {str(e)}")
+      
+      print('::' + json.dumps({"outputs": {"message_sent": True, "final_response": final_response}}) + '::') 

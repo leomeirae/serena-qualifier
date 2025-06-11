@@ -31,8 +31,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código da aplicação
 COPY scripts/ ./scripts/
-COPY utils/ ./utils/
-COPY main.py .
 
 # Mudar proprietário para appuser
 RUN chown -R appuser:appuser /app

@@ -1,0 +1,286 @@
+id: ai-conversation-activation-v2
+namespace: serena.energia
+description: "Workflow de conversação IA + processamento de faturas - COMPLETO"
+
+labels:
+  version: "3.0.0"
+  environment: "production"
+  system: "serena-qualifier"
+
+triggers:
+  - id: whatsapp-response-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "webhook"
+
+tasks:
+  # TASK 1: Classificar Intenção (incluindo fatura)
+  - id: classify-user-intention
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      LEAD_PHONE: "{{ trigger.body.lead_phone }}"
+      LEAD_MESSAGE: "{{ trigger.body.lead_message }}"
+      MESSAGE_TYPE: "{{ trigger.body.message_type }}"
+      MESSAGE_ID: "{{ trigger.body.message_id }}"
+      MEDIA_ID: "{{ trigger.body.media_id }}"
+    script: |
+      import sys
+      sys.path.append('.')
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.ai_agent import process_ai_request
+      import os
+      import json
+      
+      phone = os.getenv("LEAD_PHONE")
+      message = os.getenv("LEAD_MESSAGE")
+      msg_type = os.getenv("MESSAGE_TYPE")
+      msg_id = os.getenv("MESSAGE_ID")
+      media_id = os.getenv("MEDIA_ID")
+      
+      print(f"🎯 CLASSIFICANDO INTENÇÃO - Lead {phone}")
+      print(f"💬 Mensagem: '{message}'")
+      print(f"📱 Tipo: {msg_type}")
+      print(f"🎬 Media ID: {media_id}")
+      
+      # Detectar se é fatura automaticamente
+      if msg_type in ["image", "document"] or "[FATURA_ENVIADA:" in message or "[DOCUMENTO_ENVIADO:" in message:
+          print("📄 FATURA DETECTADA automaticamente!")
+          intention_result = {
+              "intention": "enviou_fatura",
+              "confidence": "high",
+              "auto_detected": True
+          }
+      else:
+          # Classificar com IA para mensagens de texto
+          try:
+              intention_result = process_ai_request(
+                  phone_number=phone,
+                  message=message,
+                  action="classify"
+              )
+          except Exception as e:
+              print(f"❌ Erro na classificação: {str(e)}")
+              intention_result = {"intention": "incompreensivel", "error": str(e)}
+      
+      print(f"🤖 Intenção classificada: {intention_result.get('intention', 'erro')}")
+      print(f"🎯 Confiança: {intention_result.get('confidence', 'baixa')}")
+      
+      context = {
+          "phone": phone,
+          "message": message,
+          "message_type": msg_type,
+          "message_id": msg_id,
+          "media_id": media_id,
+          "intention_result": intention_result,
+          "timestamp": os.getenv("KESTRA_TIMESTAMP", "")
+      }
+      
+      print('::' + json.dumps({"outputs": {"context": context}}) + '::')
+
+  # TASK 2: Processar Fatura (se enviou_fatura)
+  - id: process-invoice-ocr
+    type: io.kestra.plugin.scripts.python.Script
+    runIf: "{{ outputs['classify-user-intention'].vars.context.intention_result.intention == 'enviou_fatura' }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      CONTEXT_JSON: "{{ outputs['classify-user-intention'].vars.context | json }}"
+    script: |
+      import sys
+      sys.path.append('.')
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      import os
+      import json
+      import asyncio
+      from scripts.ocr_processor import process_conta_energia_file
+      
+      context = json.loads(os.getenv("CONTEXT_JSON", "{}"))
+      phone = context.get("phone")
+      media_id = context.get("media_id")
+      
+      print(f"📄 PROCESSANDO FATURA - Lead {phone}")
+      print(f"🎬 Media ID: {media_id}")
+      
+      async def run_ocr():
+          # Processar fatura (simulado por enquanto)
+          ocr_result = await process_conta_energia_file(media_id, phone)
+          return ocr_result
+      
+      try:
+          ocr_result = asyncio.run(run_ocr())
+          print(f"💰 Valor detectado: R$ {ocr_result.get('valor_conta', 0):.2f}")
+          print(f"👤 Cliente: {ocr_result.get('nome_cliente', 'N/A')}")
+          print(f"✅ Qualificado: {ocr_result.get('is_qualified', False)}")
+          
+          # Atualizar contexto com dados OCR
+          context["ocr_result"] = ocr_result
+          context["is_invoice_processed"] = True
+          
+      except Exception as e:
+          print(f"❌ Erro no OCR: {str(e)}")
+          context["ocr_result"] = {"error": str(e), "success": False}
+          context["is_invoice_processed"] = False
+      
+      print('::' + json.dumps({"outputs": {"context": context}}) + '::')
+
+  # TASK 3: Gerar Resposta IA (para fatura ou texto)
+  - id: generate-ai-response
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      CLASSIFY_CONTEXT: "{{ outputs['classify-user-intention'].vars.context | json }}"
+      OCR_CONTEXT: "{{ outputs['process-invoice-ocr'].vars.context | json | default('{}') }}"
+    script: |
+      import sys
+      sys.path.append('.')
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.ai_agent import process_ai_request
+      import os
+      import json
+      
+      # Carregar contextos
+      classify_ctx = json.loads(os.getenv("CLASSIFY_CONTEXT", "{}"))
+      ocr_ctx = json.loads(os.getenv("OCR_CONTEXT", "{}"))
+      
+      # Usar contexto adequado
+      if ocr_ctx:
+          context = ocr_ctx
+          processing_type = "invoice_ocr"
+      else:
+          context = classify_ctx
+          processing_type = "text_message"
+      
+      phone = context.get("phone")
+      message = context.get("message")
+      intention = context.get("intention_result", {}).get("intention", "")
+      
+      print(f"🤖 GERANDO RESPOSTA IA - Lead {phone}")
+      print(f"🎯 Intenção: {intention}")
+      print(f"📋 Tipo: {processing_type}")
+      
+      try:
+          if processing_type == "invoice_ocr":
+              # Resposta sobre fatura processada
+              ocr_result = context.get("ocr_result", {})
+              ai_context = {
+                  "intention": intention,
+                  "invoice_processed": True,
+                  "qualification_result": ocr_result,
+                  "valor_conta": ocr_result.get("valor_conta", 0),
+                  "is_qualified": ocr_result.get("is_qualified", False)
+              }
+          else:
+              # Resposta normal de texto
+              ai_context = {
+                  "intention": intention,
+                  "conversation_stage": "active"
+              }
+          
+          response_result = process_ai_request(
+              phone_number=phone,
+              message=message,
+              action="respond",
+              context=ai_context
+          )
+          
+          ai_response = response_result.get("response", "Desculpe, houve um problema.")
+          success = response_result.get("success", False)
+          
+          print(f"💬 Resposta gerada: '{ai_response[:100]}...'")
+          
+          final_context = {
+              **context,
+              "ai_response": ai_response,
+              "response_success": success,
+              "processing_type": processing_type,
+              "tokens_used": response_result.get("tokens_used", 0)
+          }
+          
+      except Exception as e:
+          print(f"❌ Erro: {str(e)}")
+          final_context = {
+              **context,
+              "ai_response": "Desculpe, tive um problema técnico.",
+              "response_success": False,
+              "error": str(e)
+          }
+      
+      print('::' + json.dumps({"outputs": {"final_context": final_context}}) + '::')
+
+  # TASK 4: Enviar Resposta
+  - id: send-ai-response
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      FINAL_CONTEXT_JSON: "{{ outputs['generate-ai-response'].vars.final_context | json }}"
+    script: |
+      import os
+      import json
+      import requests
+      
+      context = json.loads(os.getenv("FINAL_CONTEXT_JSON", "{}"))
+      phone = context.get("phone")
+      ai_response = context.get("ai_response")
+      processing_type = context.get("processing_type", "")
+      
+      print(f"📱 ENVIANDO RESPOSTA - Lead {phone}")
+      print(f"💬 Resposta: '{ai_response[:100]}...'")
+      
+      try:
+          whatsapp_url = "http://whatsapp-service:8000/whatsapp/send_text_message"
+          payload = {"phone": phone, "message": ai_response}
+          
+          response = requests.post(whatsapp_url, json=payload, timeout=30)
+          response.raise_for_status()
+          
+          result = response.json()
+          message_id = result.get("message_id", "")
+          
+          print(f"✅ Mensagem enviada! ID: {message_id}")
+          
+          final_result = {
+              "conversation_completed": True,
+              "message_sent": True,
+              "message_id": message_id,
+              "processing_type": processing_type
+          }
+          
+          # Adicionar dados de fatura se processou
+          if processing_type == "invoice_ocr":
+              ocr_result = context.get("ocr_result", {})
+              final_result.update({
+                  "invoice_processed": True,
+                  "is_qualified": ocr_result.get("is_qualified", False),
+                  "valor_conta": ocr_result.get("valor_conta", 0)
+              })
+          
+      except Exception as e:
+          print(f"❌ Erro ao enviar: {str(e)}")
+          final_result = {
+              "conversation_completed": False,
+              "message_sent": False,
+              "error": str(e)
+          }
+      
+      print('::' + json.dumps({"outputs": {"final_result": final_result}}) + '::') 

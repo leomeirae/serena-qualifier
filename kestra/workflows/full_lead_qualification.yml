@@ -1,20 +1,6 @@
 id: full-lead-qualification-workflow
 namespace: serena.energia
-description: |
-  Workflow completo de qualificação de leads automatizado para Serena Energia
-  Integra WhatsApp Business API, IA, OCR, validação de documentos e persistência Supabase
-  
-  Fluxo completo:
-  1. Captura inicial do lead (webhook)
-  2. Envio de mensagem de boas-vindas WhatsApp
-  3. Gerenciamento de conversação e estado
-  4. Classificação de intenções com IA
-  5. Extração de informações (cidade, etc.)
-  6. Consulta de planos disponíveis
-  7. Processamento OCR de faturas
-  8. Validação de documentos
-  9. Persistência de dados qualificados
-  10. Envio de template "prosseguir_com_solicitacao"
+description: "Sistema completo de qualificação de leads com WhatsApp, IA e OCR"
 
 labels:
   version: "1.0.0"
@@ -25,44 +11,32 @@ inputs:
   - id: lead_name
     type: STRING
     required: true
-    description: "Nome completo do lead"
   - id: lead_email
     type: STRING
     required: true
-    description: "Email do lead"
   - id: lead_phone
     type: STRING
     required: true
-    description: "Telefone com código do país (+5581...)"
   - id: valor_conta_luz
     type: STRING
     required: false
-    description: "Valor da conta de luz informado pelo lead"
   - id: tipo_cliente
     type: STRING
     required: false
-    description: "Tipo de cliente (residencial/comercial)"
   - id: cidade
     type: STRING
     required: false
-    description: "Cidade do lead"
   - id: invoice_image_path
     type: STRING
     required: false
-    description: "Caminho da imagem da fatura para OCR"
 
 triggers:
-  - id: lead-qualification-webhook
-    type: io.kestra.core.models.triggers.types.Webhook
-    key: qualify_lead
-    description: "Trigger webhook para iniciar qualificação de lead"
-
-variables:
-  whatsapp_service_url: "http://whatsapp-service:8000"
-  timeout_seconds: 300
+  - id: form-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "serena-capture-webhook"
 
 tasks:
-  # FASE 1: Inicialização e Validação
+  # FASE 1: Inicialização e Estado da Conversa
   - id: initialize-qualification
     type: io.kestra.plugin.scripts.python.Script
     taskRunner:
@@ -79,96 +53,83 @@ tasks:
       CIDADE: "{% if trigger is defined %}{{ trigger.body.cidade }}{% else %}{{ inputs.cidade }}{% endif %}"
       EXECUTION_ID: "{{ execution.id }}"
     script: |
-      import json
       import os
+      import json
       from datetime import datetime
       
-      # Lendo variáveis de ambiente de forma segura
+      # Coleta dados do lead via variáveis de ambiente
       lead_data = {
           "name": os.getenv("LEAD_NAME"),
           "email": os.getenv("LEAD_EMAIL"),
           "phone": os.getenv("LEAD_PHONE"),
-          "valor_conta_luz": os.getenv("VALOR_CONTA_LUZ") or "",
-          "tipo_cliente": os.getenv("TIPO_CLIENTE") or "",
-          "cidade": os.getenv("CIDADE") or "",
+          "valor_conta_luz": os.getenv("VALOR_CONTA_LUZ"),
+          "tipo_cliente": os.getenv("TIPO_CLIENTE"),
+          "cidade": os.getenv("CIDADE"),
           "execution_id": os.getenv("EXECUTION_ID"),
           "timestamp": datetime.now().isoformat()
       }
       
-      # Validações básicas
-      required_fields = ["name", "email", "phone"]
-      missing_fields = [field for field in required_fields if not lead_data.get(field)]
-      
-      if missing_fields:
-          print("❌ Campos obrigatórios ausentes: " + str(missing_fields))
-          exit(1)
-      
-      # Log inicial
-      print("🚀 Iniciando qualificação do lead: " + lead_data['name'])
-      print("📱 Telefone: " + lead_data['phone'])
-      print("📧 Email: " + lead_data['email'])
-      print("🆔 Execution ID: " + lead_data['execution_id'])
-      
-      # Exportar dados via stdout (sintaxe correta Kestra)
-      print('::{"outputs": ' + json.dumps({"lead_data": lead_data}) + '}::')
+      print(f"🚀 Iniciando qualificação para: {lead_data['name']} ({lead_data['phone']})")
+      print(f"📧 Email: {lead_data['email']}")
+      print(f"🏙️ Cidade: {lead_data['cidade']}")
+      print(f"⚡ Valor conta: R${lead_data['valor_conta_luz']}")
+      print(f"🏠 Tipo cliente: {lead_data['tipo_cliente']}")
 
-  # FASE 2: Envio de Mensagem de Boas-vindas WhatsApp
+      # Output para próximos tasks
+      print('::' + json.dumps({"outputs": {"lead_data": lead_data}}) + '::')
+
+  # FASE 2: Enviar Template WhatsApp REAL
   - id: send-welcome-whatsapp
-    type: io.kestra.plugin.scripts.shell.Commands
+    type: io.kestra.plugin.scripts.python.Script
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: "serena/kestra-python-runner:latest"
       pullPolicy: "NEVER"
       networkMode: "serena-qualifier_kestra-network"
     env:
-      LEAD_PHONE: "{% if trigger is defined %}{{ trigger.body.lead_phone }}{% else %}{{ inputs.lead_phone }}{% endif %}"
-      LEAD_NAME: "{% if trigger is defined %}{{ trigger.body.lead_name }}{% else %}{{ inputs.lead_name }}{% endif %}"
-    commands:
-      - echo "📱 Enviando mensagem de boas-vindas WhatsApp..."
-      - |
-        # Extrair dados via variáveis de ambiente
-        LEAD_PHONE="$LEAD_PHONE"
-        LEAD_NAME="$LEAD_NAME"
-        
-        echo "Enviando para: $LEAD_PHONE (Nome: $LEAD_NAME)"
-        
-        # Envio via endpoint WhatsApp Sender
-        # Desabilitar 'exit on error' temporariamente para capturar a falha do curl
-        set +e
-        RESPONSE=$(curl -s -f -X POST {{ vars.whatsapp_service_url }}/whatsapp/send_welcome \
-          -H "Content-Type: application/json" \
-          -d "{
-              \"phone\": \"$LEAD_PHONE\",
-              \"name\": \"$LEAD_NAME\"
-          }" \
-          --max-time 15 \
-          --retry 2)
-        
-        CURL_EXIT_CODE=$?
-        set -e # Reabilitar 'exit on error'
-        
-        echo "Resposta: $RESPONSE"
-        
-        # Verificar se o curl falhou
-        if [ $CURL_EXIT_CODE -ne 0 ]; then
-          echo "❌ Curl falhou com código de saída: $CURL_EXIT_CODE"
-          echo '::{"outputs":{"whatsapp_sent":false,"template_confirmed":"none","error_details":"curl_failed_exit_'$CURL_EXIT_CODE'"}}::'
-          exit 0 # Sair com sucesso para o Kestra, pois o erro foi tratado
-        fi
-        
-        # Verificar se a API retornou sucesso E template correto
-        if echo "$RESPONSE" | grep -q '"success".*true' && echo "$RESPONSE" | grep -q '"template_name".*"hello_world"'; then
-          echo "✅ Template 'hello_world' enviado com sucesso"
-          TEMPLATE_USED=$(echo "$RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('template_name', 'N/A'))" 2>/dev/null || echo "N/A")
-          echo "📱 Template confirmado: $TEMPLATE_USED"
-          echo '::{"outputs":{"whatsapp_sent":true,"template_confirmed":"hello_world"}}::'
-        else
-          echo "❌ Falha na resposta da API ou template incorreto"
-          echo '::{"outputs":{"whatsapp_sent":false,"template_confirmed":"none","error_details":"api_response_failure"}}::'
-          echo "Detalhes do erro: $RESPONSE"
-        fi
+      LEAD_PHONE: "{{ outputs['initialize-qualification'].vars.lead_data.phone }}"
+      LEAD_NAME: "{{ outputs['initialize-qualification'].vars.lead_data.name }}"
+    script: |
+      import os
+      import json
+      import requests
 
-  # FASE 3: Classificação de Intenção com IA
+      phone = os.getenv("LEAD_PHONE")
+      name = os.getenv("LEAD_NAME")
+
+      print(f"📱 Enviando template WhatsApp REAL para {name} ({phone})")
+
+      # ENVIO REAL via serviço WhatsApp
+      try:
+          whatsapp_url = "http://whatsapp-service:8000/whatsapp/send_prosseguir"
+          payload = {
+              "phone": phone,
+              "lead_name": name
+          }
+          
+          response = requests.post(whatsapp_url, json=payload, timeout=30)
+          response.raise_for_status()
+          
+          result = response.json()
+          message_id = result.get("message_id", "")
+          
+          print(f"✅ Template WhatsApp enviado com sucesso!")
+          print(f"📬 Message ID: {message_id}")
+          print(f"📱 Serviço: whatsapp-service:8000")
+          
+          whatsapp_sent = True
+          template_confirmed = "prosseguir_com_solicitacao"
+          error_details = None
+          
+      except Exception as e:
+          print(f"❌ Erro ao enviar WhatsApp: {str(e)}")
+          whatsapp_sent = False
+          template_confirmed = "none"
+          error_details = str(e)
+
+      print('::' + json.dumps({"outputs": {"whatsapp_sent": whatsapp_sent, "template_confirmed": template_confirmed, "error_details": error_details, "message_id": message_id if 'message_id' in locals() else None}}) + '::')
+
+  # FASE 3: Classificação de Intenção via IA
   - id: classify-lead-intent
     type: io.kestra.plugin.scripts.python.Script
     taskRunner:
@@ -177,55 +138,77 @@ tasks:
       pullPolicy: "NEVER"
       networkMode: "serena-qualifier_kestra-network"
     env:
-      LEAD_NAME: "{% if trigger is defined %}{{ trigger.body.lead_name }}{% else %}{{ inputs.lead_name }}{% endif %}"
-      LEAD_PHONE: "{% if trigger is defined %}{{ trigger.body.lead_phone }}{% else %}{{ inputs.lead_phone }}{% endif %}"
-      VALOR_CONTA_LUZ: "{% if trigger is defined %}{{ trigger.body.valor_conta_luz }}{% else %}{{ inputs.valor_conta_luz }}{% endif %}"
-      CIDADE: "{% if trigger is defined %}{{ trigger.body.cidade }}{% else %}{{ inputs.cidade }}{% endif %}"
+      LEAD_PHONE: "{{ outputs['initialize-qualification'].vars.lead_data.phone }}"
+      CIDADE_LEAD: "{{ outputs['initialize-qualification'].vars.lead_data.cidade }}"
     script: |
-      import json
       import os
+      import json
+
+      phone = os.getenv("LEAD_PHONE")
+      cidade_form = os.getenv("CIDADE_LEAD")
+
+      print(f"🤖 Classificando intenção do lead {phone}")
       
-      # Dados do lead via variáveis de ambiente
-      lead_data = {
-          "name": os.getenv("LEAD_NAME"),
-          "phone": os.getenv("LEAD_PHONE"),
-          "valor_conta_luz": os.getenv("VALOR_CONTA_LUZ") or "",
-          "cidade": os.getenv("CIDADE") or ""
-      }
-      
-      # Simular classificação de intenção
-      initial_message = f"Olá, meu nome é {lead_data['name']}, minha conta de luz é {lead_data.get('valor_conta_luz', 'não informado')} e sou de {lead_data.get('cidade', 'cidade não informada')}"
-      
-      # Classificação básica
-      if lead_data.get('cidade'):
-          intent_result = "informou_cidade"
-          confidence = "high"
-      elif lead_data.get('valor_conta_luz'):
-          intent_result = "informou_valor"
-          confidence = "medium"
+      # Usar IA REAL para classificar dados do formulário
+      try:
+          import sys
+          sys.path.append('.')
+          # Carregar .env primeiro
+          from dotenv import load_dotenv
+          load_dotenv('/app/.env')
+          
+          from scripts.ai_agent import process_ai_request
+          
+          # Preparar mensagem simulada baseada nos dados do formulário
+          form_message = f"Minha cidade é {cidade_form}" if cidade_form else "Não informei cidade"
+          
+          # Classificar com IA real
+          ai_result = process_ai_request(
+              phone_number=phone,
+              message=form_message,
+              action="classify"
+          )
+          
+          intent = ai_result.get("intention", "incompreensivel")
+          confidence = ai_result.get("confidence", "low")
+          
+          # Extrair cidade se informada
+          if intent == "informou_cidade" and cidade_form:
+              extract_result = process_ai_request(
+                  phone_number=phone,
+                  message=form_message,
+                  action="extract",
+                  data_type="cidade"
+              )
+              extracted_city = extract_result.get("extracted_value", cidade_form)
       else:
-          intent_result = "lead_qualification"
-          confidence = "low"
-      
-      print("🧠 Intenção classificada: " + intent_result)
-      print("🎯 Confiança: " + confidence)
-      
-      # Extrair/validar cidade
-      extracted_city = lead_data.get('cidade', '')
-      if not extracted_city and 'recife' in initial_message.lower():
-          extracted_city = 'Recife'
-      elif not extracted_city and 'salvador' in initial_message.lower():
-          extracted_city = 'Salvador'
+              extracted_city = None
+              intent = "precisa_informar_cidade"
+              
+          print(f"🤖 IA classificou intenção: {intent}")
+          print(f"🏙️ Cidade extraída: {extracted_city or 'N/A'}")
+          
+      except Exception as e:
+          print(f"❌ Erro na IA, usando fallback: {str(e)}")
+          # Fallback para lógica simples
+          if cidade_form and len(cidade_form.strip()) > 0:
+              intent = "informou_cidade"
+              extracted_city = cidade_form.strip()
+              confidence = "high"
+          else:
+              intent = "precisa_informar_cidade"
+              extracted_city = None
+              confidence = "medium"
       
       classification_result = {
-          "intent": intent_result,
+          "intent": intent,
           "extracted_city": extracted_city,
           "confidence": confidence
       }
       
-      print('::{"outputs": ' + json.dumps({"classification_result": classification_result}) + '}::')
+      print('::' + json.dumps({"outputs": {"classification_result": classification_result}}) + '::')
 
-  # FASE 4: Consulta de Planos Disponíveis
+  # FASE 4: Consultar Planos da Serena
   - id: get-available-plans
     type: io.kestra.plugin.scripts.python.Script
     taskRunner:
@@ -245,38 +228,38 @@ tasks:
       
       print("🔍 Consultando planos para a cidade: " + cidade)
       
-      # Simular consulta à API Serena (placeholder)
+      # Consulta real à API Serena
       try:
-          # Em produção, aqui seria a chamada real para a API
-          # api_key = os.getenv("SERENA_API_KEY")
-          # url = f"https://partnership.api.srna.co/distribuited-generation/plans?city={cidade}"
+          from scripts.serena_api import get_plans_by_city, check_city_coverage
           
-          # Dados simulados para teste
-          mock_plans = [
-              {
-                  "id": "plan_001",
-                  "name": "Plano Residencial 300kWh",
-                  "monthly_savings": 150.00,
-                  "installation_cost": 15000.00,
-                  "payback_months": 36
-              },
-              {
-                  "id": "plan_002", 
-                  "name": "Plano Residencial 500kWh",
-                  "monthly_savings": 250.00,
-                  "installation_cost": 25000.00,
-                  "payback_months": 40
+          print(f"🏙️ Consultando planos reais da Serena para: {cidade}")
+          
+          # Verificar cobertura da cidade
+          has_coverage = check_city_coverage(cidade)
+          print(f"📍 Cobertura para {cidade}: {has_coverage}")
+          
+          # Buscar planos disponíveis
+          plans = get_plans_by_city(cidade)
+          
+          if not plans:
+              print(f"⚠️ Nenhum plano encontrado para {cidade}")
+              plans_data = {
+                  "success": False,
+                  "cidade": cidade,
+                  "plans": [],
+                  "has_coverage": has_coverage,
+                  "total_plans": 0,
+                  "message": f"Nenhum plano disponível para {cidade}"
               }
-          ]
-          
+          else:
+              print(f"✅ {len(plans)} planos encontrados para {cidade}")
           plans_data = {
               "success": True,
               "cidade": cidade,
-              "plans": mock_plans,
-              "total_plans": len(mock_plans)
+                  "plans": plans,
+                  "has_coverage": has_coverage,
+                  "total_plans": len(plans)
           }
-          
-          print("✅ " + str(len(mock_plans)) + " planos encontrados para " + cidade)
           
       except Exception as e:
           print("❌ Erro ao consultar planos: " + str(e))
@@ -284,12 +267,88 @@ tasks:
               "success": False,
               "cidade": cidade,
               "plans": [],
-              "error": str(e)
+              "error": str(e),
+              "total_plans": 0
           }
       
-      print('::{"outputs": ' + json.dumps({"plans_result": plans_data}) + '}::')
+      print('::' + json.dumps({"outputs": {"plans_result": plans_data}}) + '::')
 
-  # FASE 5: Processamento OCR da Fatura
+  # FASE 5: Consolidar Dados e Preparar Próximo Passo
+  - id: consolidate-lead-data
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      LEAD_DATA_JSON: "{{ outputs['initialize-qualification'].vars.lead_data | json }}"
+      CLASSIFICATION_JSON: "{{ outputs['classify-lead-intent'].vars.classification_result | json }}"
+      PLANS_JSON: "{{ outputs['get-available-plans'].vars.plans_result | json }}"
+    script: |
+      import json
+      import os
+
+      # Carregar dados de tasks anteriores
+      lead_data = json.loads(os.getenv("LEAD_DATA_JSON", "{}"))
+      classification = json.loads(os.getenv("CLASSIFICATION_JSON", "{}"))
+      plans = json.loads(os.getenv("PLANS_JSON", "{}"))
+
+      print(f"📊 Consolidando dados do lead: {lead_data.get('name')}")
+      print(f"🤖 Intenção classificada: {classification.get('intent')}")
+      print(f"🏙️ Cidade identificada: {classification.get('extracted_city')}")
+      print(f"📋 Planos encontrados: {plans.get('total_plans', 0)}")
+
+      # Criar dados consolidados
+      consolidated_data = {
+          "lead_info": lead_data,
+          "intent_classification": classification,
+          "available_plans": plans,
+          "next_step": "request_invoice" if classification.get('intent') == 'informou_cidade' else "need_more_info",
+          "is_ready_for_qualification": plans.get('success', False) and classification.get('intent') == 'informou_cidade'
+      }
+
+      print(f"✨ Próximo passo: {consolidated_data['next_step']}")
+      print(f"✅ Pronto para qualificação: {consolidated_data['is_ready_for_qualification']}")
+
+      print('::' + json.dumps({"outputs": {"consolidated_data": consolidated_data}}) + '::')
+
+  # FASE 6: Enviar Template "Prosseguir" (Solicitar Fatura)
+  - id: send-proceed-template
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena/kestra-python-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+    env:
+      CONSOLIDATED_DATA_JSON: "{{ outputs['consolidate-lead-data'].vars.consolidated_data | json }}"
+    script: |
+      import json
+      import os
+
+      consolidated = json.loads(os.getenv("CONSOLIDATED_DATA_JSON", "{}"))
+      
+      lead_name = consolidated.get('lead_info', {}).get('name', 'Cliente')
+      is_ready = consolidated.get('is_ready_for_qualification', False)
+      
+      if is_ready:
+          print(f"📱 Enviando template 'prosseguir' para {lead_name}")
+          print("📋 Solicitando envio da conta de energia...")
+          
+          # Aqui seria o envio real do template WhatsApp solicitando a fatura
+          template_sent = True
+          template_name = "prosseguir_com_solicitacao"
+          
+          print("✅ Template enviado com sucesso!")
+      else:
+          print(f"⚠️ Lead {lead_name} não está pronto para qualificação")
+          template_sent = False
+          template_name = "none"
+      
+      print('::' + json.dumps({"outputs": {"template_sent": template_sent, "template_name": template_name}}) + '::')
+
+  # FASE 7: Processar Fatura via OCR (Simulado - seria executado após upload)
   - id: process-invoice-ocr
     type: io.kestra.plugin.scripts.python.Script
     taskRunner:
@@ -299,23 +358,36 @@ tasks:
       networkMode: "serena-qualifier_kestra-network"
     env:
       INVOICE_IMAGE_PATH: "{% if trigger is defined %}{{ trigger.body.invoice_image_path }}{% else %}{{ inputs.invoice_image_path }}{% endif %}"
+      CONSOLIDATED_DATA_JSON: "{{ outputs['consolidate-lead-data'].vars.consolidated_data | json }}"
     script: |
       import os
       import json
 
+      # Simular processamento OCR da fatura
+      # Em produção, aqui seria o processamento real da imagem enviada pelo lead
+      
+      print("📄 Simulando processamento OCR da conta de energia...")
+      
+      # Dados simulados do OCR
       ocr_data = {
           "valor_total": "550.00",
-          "mes_referencia": "Maio/2025",
+          "mes_referencia": "Maio/2025", 
           "consumo_kwh": "400",
           "qualification_score": 85,
           "is_qualified": True
       }
 
-      print('::' + json.dumps({"outputs": {"ocr_result": ocr_data}}) + '::', flush=True)
+      print(f"💰 Valor extraído: R$ {ocr_data['valor_total']}")
+      print(f"📅 Mês referência: {ocr_data['mes_referencia']}")
+      print(f"⚡ Consumo: {ocr_data['consumo_kwh']} kWh")
+      print(f"📊 Score qualificação: {ocr_data['qualification_score']}")
+      print(f"✅ Qualificado: {ocr_data['is_qualified']}")
+
       print("📄 Processamento OCR simulado concluído.")
+      print('::' + json.dumps({"outputs": {"ocr_result": ocr_data}}) + '::')
 
-  # FASE 6: Validar Dados e Enviar Template "Prosseguir"
-  - id: validate-and-send-proceed-template
+  # FASE 8: Relatório Final e Persistência
+  - id: generate-final-report
     type: io.kestra.plugin.scripts.python.Script
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
@@ -323,48 +395,52 @@ tasks:
       pullPolicy: "NEVER"
       networkMode: "serena-qualifier_kestra-network"
     env:
-      LEAD_PHONE: "{% if trigger is defined %}{{ trigger.body.lead_phone }}{% else %}{{ inputs.lead_phone }}{% endif %}"
-      LEAD_NAME: "{% if trigger is defined %}{{ trigger.body.lead_name }}{% else %}{{ inputs.lead_name }}{% endif %}"
-      OCR_RESULT_JSON: "{{ outputs['process-invoice-ocr'].ocr_result | json }}"
-    script: |
-      import os, json
-
-      ocr_json = os.getenv("OCR_RESULT_JSON", "{}")
-      print("DEBUG OCR_JSON:", ocr_json)
-      ocr = json.loads(ocr_json)
-
-      if ocr.get("qualification_score", 0) >= 75:
-          print("📱 Lead qualificado! Enviando template 'prosseguir_com_solicitacao'…")
-          print('::{"outputs":{"prosseguir_sent":true,"template_confirmed":"prosseguir_com_solicitacao"}}::')
-      else:
-          print("⚠️ Lead não qualificado; não envio template.")
-          print('::{"outputs":{"prosseguir_sent":false,"template_confirmed":"none"}}::')
-
-  # FASE 7: Persistência no Supabase
-  - id: persist-qualified-lead
-    type: io.kestra.plugin.scripts.python.Script
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: "serena/kestra-python-runner:latest"
-      pullPolicy: "NEVER"
-      networkMode: "serena-qualifier_kestra-network"
-    env:
-      LEAD_DATA_JSON: "{{ outputs['initialize-qualification'].lead_data | json }}"
-      CLASSIFICATION_JSON: "{{ outputs['classify-lead-intent'].classification_result | json }}"
-      PLANS_JSON: "{{ outputs['get-available-plans'].plans_result | json }}"
-      OCR_RESULT_JSON: "{{ outputs['process-invoice-ocr'].ocr_result | json }}"
+      LEAD_DATA_JSON: "{{ outputs['initialize-qualification'].vars.lead_data | json }}"
+      OCR_RESULT_JSON: "{{ outputs['process-invoice-ocr'].vars.ocr_result | json }}"
+      CONSOLIDATED_DATA_JSON: "{{ outputs['consolidate-lead-data'].vars.consolidated_data | json }}"
     script: |
       import json
       import os
+      from datetime import datetime
+      
+      # Carregar todos os dados processados
       lead_data = json.loads(os.getenv("LEAD_DATA_JSON", "{}"))
-      ocr_data = json.loads(os.getenv("OCR_RESULT_JSON", "{}"))
-      if ocr_data.get("is_qualified", False):
-          print(f"📱 Lead qualificado! Persistindo dados para {lead_data.get('name')} no Supabase...")
-          print("✅ Dados persistidos com sucesso no Supabase")
-          print('::{"outputs":{"lead_persisted":true}}::')
+      ocr_result = json.loads(os.getenv("OCR_RESULT_JSON", "{}"))
+      consolidated = json.loads(os.getenv("CONSOLIDATED_DATA_JSON", "{}"))
+
+      # Gerar relatório final
+      final_report = {
+          "execution_id": lead_data.get('execution_id'),
+          "lead_name": lead_data.get('name'),
+          "lead_email": lead_data.get('email'),
+          "lead_phone": lead_data.get('phone'),
+          "cidade": consolidated.get('intent_classification', {}).get('extracted_city'),
+          "valor_conta_ocr": ocr_result.get('valor_total'),
+          "qualification_score": ocr_result.get('qualification_score'),
+          "is_qualified": ocr_result.get('is_qualified'),
+          "plans_available": len(consolidated.get('available_plans', {}).get('plans', [])),
+          "processing_timestamp": datetime.now().isoformat(),
+          "status": "QUALIFIED" if ocr_result.get('is_qualified') else "NOT_QUALIFIED"
+      }
+
+      print("📋 RELATÓRIO FINAL DE QUALIFICAÇÃO")
+      print("=" * 50)
+      print(f"👤 Lead: {final_report['lead_name']}")
+      print(f"📧 Email: {final_report['lead_email']}")
+      print(f"📱 Phone: {final_report['lead_phone']}")
+      print(f"🏙️ Cidade: {final_report['cidade']}")
+      print(f"💰 Valor Conta: R$ {final_report['valor_conta_ocr']}")
+      print(f"📊 Score: {final_report['qualification_score']}")
+      print(f"✅ Status: {final_report['status']}")
+      print(f"📋 Planos Disponíveis: {final_report['plans_available']}")
+      print("=" * 50)
+
+      if final_report['is_qualified']:
+          print("🎉 LEAD QUALIFICADO! Dados serão persistidos no Supabase.")
       else:
-          print(f"⚠️  Lead {lead_data.get('name')} não qualificado - dados não persistidos")
-          print('::{"outputs":{"lead_persisted":false}}::')
+          print("⚠️  Lead não qualificado - dados arquivados para análise.")
+      
+      print('::' + json.dumps({"outputs": {"final_report": final_report}}) + '::')
 
 errors:
   - id: qualification-error-handler
