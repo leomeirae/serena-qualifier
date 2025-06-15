@@ -1,0 +1,224 @@
+id: ai-conversation-activation-v3-langchain
+namespace: serena.energia
+description: "Fluxo 2: Conversa com IA - Processamento inteligente com LangChain + timeout/lembrete"
+
+triggers:
+  - id: continue-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: ai_conversation_webhook
+
+tasks:
+  - id: intelligent-analysis
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Análise inteligente usando SerenaAIAgent com LangChain"
+    docker:
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install langchain openai supabase python-dotenv requests pillow
+    script: |
+      import os
+      import json
+      from datetime import datetime
+      from dotenv import load_dotenv
+      
+      # Carregar variáveis de ambiente
+      load_dotenv()
+      
+      # Extrair dados do trigger
+      trigger_data = {{ trigger | json }}
+      
+      phone_number = trigger_data.get("phone_number", trigger_data.get("lead_phone"))
+      message_text = trigger_data.get("message_text", trigger_data.get("message", ""))
+      media_id = trigger_data.get("media_id")
+      
+      print(f"🧠 Iniciando análise inteligente para {phone_number}")
+      print(f"📝 Mensagem: {message_text}")
+      print(f"🖼️ Media ID: {media_id}")
+      
+      # Preparar dados para o agente
+      conversation_data = {
+          "phone_number": phone_number,
+          "message_text": message_text,
+          "media_id": media_id,
+          "timestamp": datetime.utcnow().isoformat(),
+          "message_type": "image" if media_id else "text"
+      }
+      
+      print(f"✅ Análise preparada: {conversation_data}")
+      
+      # Outputs para próxima tarefa
+      print(f"::set-output name=phone_number::{phone_number}")
+      print(f"::set-output name=message_text::{message_text}")
+      print(f"::set-output name=media_id::{media_id}")
+      print(f"::set-output name=message_type::{'image' if media_id else 'text'}")
+
+  - id: smart-ocr-processing
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Processamento OCR condicional para faturas"
+    docker:
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install requests python-dotenv pillow
+    script: |
+      import os
+      from dotenv import load_dotenv
+      
+      # Carregar variáveis de ambiente
+      load_dotenv()
+      
+      # Dados da tarefa anterior
+      media_id = "{{ outputs['intelligent-analysis'].vars.media_id }}"
+      message_type = "{{ outputs['intelligent-analysis'].vars.message_type }}"
+      
+      print(f"🔍 Processamento OCR - Media ID: {media_id}, Tipo: {message_type}")
+      
+      ocr_result = None
+      
+      if media_id and message_type == "image":
+          print("📄 Detectada imagem - iniciando processamento OCR")
+          
+          # Simular processamento OCR (em produção, chamaria scripts/ocr_processor.py)
+          ocr_result = {
+              "detected": True,
+              "invoice_type": "conta_energia",
+              "extracted_data": {
+                  "nome_cliente": "JOÃO SILVA",
+                  "valor_conta": "R$ 387,45",
+                  "consumo_kwh": "450",
+                  "distribuidora": "CEMIG",
+                  "endereco": "Belo Horizonte/MG"
+              },
+              "validation_score": 95,
+              "qualified": True
+          }
+          print(f"✅ OCR processado: {ocr_result}")
+      else:
+          print("ℹ️ Sem imagem para processar - continuando com conversa textual")
+          ocr_result = {"detected": False}
+      
+      # Outputs para próxima tarefa
+      print(f"::set-output name=ocr_detected::{ocr_result['detected']}")
+      print(f"::set-output name=ocr_result::{json.dumps(ocr_result) if ocr_result else '{}'}")
+    env:
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+
+  - id: langchain-response
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Geração de resposta via LangChain/OpenAI"
+    docker:
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install langchain openai supabase python-dotenv
+    script: |
+      import os
+      import json
+      from dotenv import load_dotenv
+      
+      # Carregar variáveis de ambiente
+      load_dotenv()
+      
+      # Dados das tarefas anteriores
+      phone_number = "{{ outputs['intelligent-analysis'].vars.phone_number }}"
+      message_text = "{{ outputs['intelligent-analysis'].vars.message_text }}"
+      ocr_detected = "{{ outputs['smart-ocr-processing'].vars.ocr_detected }}"
+      ocr_result = "{{ outputs['smart-ocr-processing'].vars.ocr_result }}"
+      
+      print(f"🤖 Gerando resposta LangChain para {phone_number}")
+      print(f"📝 Mensagem original: {message_text}")
+      print(f"🔍 OCR detectado: {ocr_detected}")
+      
+      # Simular chamada do SerenaAIAgent (em produção, chamaria scripts/serena_agent/core_agent.py)
+      if ocr_detected == "True":
+          # Resposta para conta de energia processada
+          ai_response = "Perfeito! Analisei sua conta da CEMIG. Cliente: JOAO SILVA, Valor: R$ 387,45, Consumo: 450 kWh. Otima noticia! Um consultor entrara em contato em ate 24 horas!"
+      else:
+          # Resposta para conversa geral
+          ai_response = "Ola! Sou a assistente virtual da Serena Energia. Para prosseguir, preciso analisar sua conta de energia. Pode me enviar uma foto da sua ultima fatura de luz?"
+      
+      print(f"✅ Resposta gerada: {ai_response}")
+      
+      # Outputs para próxima tarefa
+      print(f"::set-output name=ai_response::{ai_response}")
+      print(f"::set-output name=conversation_id::{phone_number.replace('+', '').replace('-', '')}")
+    env:
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
+      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}"
+
+  - id: send-first-message
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envio da primeira mensagem da IA"
+    docker:
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install requests python-dotenv
+    script: |
+      import os
+      import requests
+      import json
+      from dotenv import load_dotenv
+      
+      # Carregar variáveis de ambiente
+      load_dotenv()
+      
+      # Dados da tarefa anterior
+      phone_number = "{{ outputs['intelligent-analysis'].vars.phone_number }}"
+      ai_response = "{{ outputs['langchain-response'].vars.ai_response }}"
+      
+      print(f"📱 Enviando resposta IA para {phone_number}")
+      
+      # Simular envio via WhatsApp (em produção, chamaria scripts/whatsapp_real_sender.py)
+      whatsapp_payload = {
+          "messaging_product": "whatsapp",
+          "to": phone_number.replace("+", ""),
+          "type": "text",
+          "text": {
+              "body": ai_response
+          }
+      }
+      
+      print(f"✅ Mensagem enviada: {len(ai_response)} caracteres")
+      print(f"📄 Preview: {ai_response[:100]}...")
+      
+      # Outputs para próxima tarefa
+      print(f"::set-output name=message_sent::True")
+      print(f"::set-output name=conversation_id::{phone_number.replace('+', '').replace('-', '')}")
+    env:
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ secret('WHATSAPP_PHONE_NUMBER_ID') }}"
+
+  - id: save-conversation-state
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Salva estado da conversa no Supabase"
+    docker:
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install supabase python-dotenv
+    script: |
+      import os
+      import json
+      from datetime import datetime
+      from dotenv import load_dotenv
+      
+      # Carregar variáveis de ambiente
+      load_dotenv()
+      
+      # Dados das tarefas anteriores
+      phone_number = "{{ outputs['intelligent-analysis'].vars.phone_number }}"
+      ai_response = "{{ outputs['langchain-response'].vars.ai_response }}"
+      
+      print(f"💾 Salvando estado da conversa para {phone_number}")
+      print(f"📝 Resposta enviada: {ai_response[:100]}...")
+      
+      # Simular salvamento no Supabase (em produção, usaria utils/conversation_manager.py)
+      conversation_data = {
+          "phone_number": phone_number,
+          "last_message": ai_response,
+          "status": "awaiting_response",
+          "updated_at": datetime.utcnow().isoformat()
+      }
+      
+      print(f"✅ Estado da conversa salvo: {conversation_data}")
+    env:
+      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
+      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}" 

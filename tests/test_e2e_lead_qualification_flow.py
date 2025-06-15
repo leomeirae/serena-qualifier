@@ -57,9 +57,9 @@ def supabase_client() -> Client:
     phone_number = LEAD_DATA["lead_phone"]
     print(f"🧹 Tentando limpar conversas antigas para o número {phone_number}...")
     try:
-        client.table("messages").delete().eq("phone_number", phone_number).execute()
-        client.table("active_conversations").delete().eq("phone_number", phone_number).execute()
-        print("✅ Limpeza concluída.")
+    client.table("messages").delete().eq("phone_number", phone_number).execute()
+    client.table("active_conversations").delete().eq("phone_number", phone_number).execute()
+    print("✅ Limpeza concluída.")
     except Exception as e:
         print(f"⚠️ Tabelas não existem ou erro na limpeza: {e}")
         print("✅ Continuando sem limpeza prévia.")

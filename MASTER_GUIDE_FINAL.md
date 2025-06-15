@@ -308,14 +308,29 @@ Este script exemplifica o fluxo ideal para guiar desenvolvimento e testes.
 
 ## **9\. Dicionário de Variáveis de Ambiente**
 
+### **Configuração da API WhatsApp Business (v23.0)**
+
+**IMPORTANTE**: O sistema utiliza a versão 23.0 da API oficial do WhatsApp Business da Meta. A URL base é `https://graph.facebook.com/v23.0/`.
+
 | Variável | Escopo | Descrição | Formato Exemplo |
 | :---- | :---- | :---- | :---- |
-| **WHATSAPP\_API\_TOKEN** | whatsapp\_sender | Token de Acesso Permanente da API do WhatsApp. | EAAD... |
-| **WHATSAPP\_PHONE\_NUMBER\_ID** | whatsapp\_sender | ID do número de telefone registrado na API. | 1029... |
+| **WHATSAPP\_API\_TOKEN** | whatsapp\_sender | Token de Acesso Permanente da API do WhatsApp v23.0. | EAAD... |
+| **WHATSAPP\_PHONE\_NUMBER\_ID** | whatsapp\_sender | ID do número de telefone registrado na API v23.0. | 599096403294262 |
+| **WHATSAPP\_BUSINESS\_ID** | whatsapp\_sender | ID da conta WhatsApp Business (opcional). | 1097835408776820 |
+| **WHATSAPP\_WELCOME\_TEMPLATE\_NAME** | whatsapp\_sender | Nome do template aprovado para mensagens de boas-vindas. | prosseguir\_com\_solicitacao |
 | **SUPABASE\_URL** | conversation\_tool | URL do projeto no Supabase. | https://\[id\].supabase.co |
 | **SUPABASE\_KEY** | conversation\_tool | Chave de API (public anon key) do Supabase. | eyJhbGci... |
 | **OPENAI\_API\_KEY** | core\_agent | Chave de API da OpenAI para o modelo de linguagem. | sk-proj-... |
 | **KESTRA\_API\_URL** | serena-landing-page | URL da instância Kestra para acionar webhooks. | http://localhost:8080 |
+
+### **Especificações Técnicas da API WhatsApp v23.0**
+
+- **Endpoint Base**: `https://graph.facebook.com/v23.0/{PHONE_NUMBER_ID}/messages`
+- **Autenticação**: Bearer Token no header `Authorization`
+- **Content-Type**: `application/json`
+- **Template Messages**: Requer templates pré-aprovados pela Meta
+- **Rate Limits**: 1000 mensagens/segundo (padrão)
+- **Webhook Verification**: Obrigatório para recebimento de mensagens
 
 ## **10\. Operações e Produção**
 

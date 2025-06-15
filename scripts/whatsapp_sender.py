@@ -570,6 +570,309 @@ async def root():
     }
 
 
+def send_template_message(phone: str, name: str) -> Dict[str, Any]:
+    """
+    Standalone function to send WhatsApp template message
+    Designed for direct use by Kestra workflows
+    
+    Args:
+        phone: Phone number with country code (e.g., +5511999999999 or 5581997498268)
+        name: Lead name for personalization
+    
+    Returns:
+        Dict containing success status and message details
+    """
+    try:
+        # Validação de entrada
+        if not phone or not isinstance(phone, str):
+            error_msg = "Phone number is required and must be a string"
+            logger.error(f"❌ Validation error: {error_msg}")
+            return {
+                "success": False,
+                "message": "Invalid phone number",
+                "phone": phone,
+                "error": error_msg,
+                "error_type": "validation_error"
+            }
+        
+        if not name or not isinstance(name, str):
+            error_msg = "Name is required and must be a string"
+            logger.error(f"❌ Validation error: {error_msg}")
+            return {
+                "success": False,
+                "message": "Invalid name",
+                "phone": phone,
+                "error": error_msg,
+                "error_type": "validation_error"
+            }
+        
+        # Validação das variáveis de ambiente
+        token = os.getenv("WHATSAPP_API_TOKEN")
+        phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+        template_name = os.getenv("WHATSAPP_WELCOME_TEMPLATE_NAME")
+        
+        if not token:
+            error_msg = "WHATSAPP_API_TOKEN not found in environment variables"
+            logger.error(f"❌ Configuration error: {error_msg}")
+            return {
+                "success": False,
+                "message": "WhatsApp API not configured",
+                "phone": phone,
+                "error": error_msg,
+                "error_type": "configuration_error"
+            }
+        
+        if not phone_number_id:
+            error_msg = "WHATSAPP_PHONE_NUMBER_ID not found in environment variables"
+            logger.error(f"❌ Configuration error: {error_msg}")
+            return {
+                "success": False,
+                "message": "WhatsApp Phone Number ID not configured",
+                "phone": phone,
+                "error": error_msg,
+                "error_type": "configuration_error"
+            }
+        
+        if not template_name:
+            error_msg = "WHATSAPP_WELCOME_TEMPLATE_NAME not found in environment variables"
+            logger.error(f"❌ Configuration error: {error_msg}")
+            return {
+                "success": False,
+                "message": "WhatsApp template name not configured",
+                "phone": phone,
+                "error": error_msg,
+                "error_type": "configuration_error"
+            }
+        
+        # Sanitizar e formatar número de telefone
+        phone_clean = phone.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        
+        # Validação básica do formato do telefone
+        if not phone_clean.replace("+", "").isdigit():
+            error_msg = f"Phone number contains invalid characters: {phone}"
+            logger.error(f"❌ Validation error: {error_msg}")
+            return {
+                "success": False,
+                "message": "Invalid phone number format",
+                "phone": phone,
+                "error": error_msg,
+                "error_type": "validation_error"
+            }
+        
+        # Ensure phone number has country code
+        if not phone_clean.startswith('+'):
+            # Add Brazil country code if missing
+            phone_clean = f"+55{phone_clean}"
+        
+        # Validação do comprimento do telefone brasileiro
+        if phone_clean.startswith("+55"):
+            if len(phone_clean) < 13 or len(phone_clean) > 14:  # +55 + 10 ou 11 dígitos
+                error_msg = f"Invalid Brazilian phone number format. Expected 13-14 digits, got {len(phone_clean)}: {phone_clean}"
+                logger.error(f"❌ Validation error: {error_msg}")
+                return {
+                    "success": False,
+                    "message": "Invalid phone number format",
+                    "phone": phone_clean,
+                    "error": error_msg,
+                    "error_type": "validation_error"
+                }
+        
+        # Extract first name for personalization
+        name_clean = name.strip()
+        first_name = name_clean.split()[0] if name_clean else ""
+        
+        if not first_name:
+            error_msg = "Unable to extract first name for personalization"
+            logger.error(f"❌ Validation error: {error_msg}")
+            return {
+                "success": False,
+                "message": "Invalid name for personalization",
+                "phone": phone_clean,
+                "error": error_msg,
+                "error_type": "validation_error"
+            }
+        
+        # Build template components for {{1}} parameter
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": first_name
+                    }
+                ]
+            }
+        ]
+        
+        # WhatsApp Business API endpoint (v23.0)
+        url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+        
+        # Headers with Bearer token
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Message payload following official API structure
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": phone_clean,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {
+                    "code": "pt_BR"  # Portuguese Brazil
+                },
+                "components": components
+            }
+        }
+        
+        logger.debug(f"📱 Sending WhatsApp template to {phone_clean} for {first_name}")
+        logger.debug(f"🔧 Using template: {template_name}")
+        logger.info(f"📱 Sending WhatsApp template '{template_name}' to {phone_clean} (name: {first_name})")
+        logger.debug(f"API URL: {url}")
+        logger.debug(f"Payload: {payload}")
+        
+        # Send POST request to WhatsApp API
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        
+        # Log response details
+        logger.info(f"📡 API Response Status: {response.status_code}")
+        logger.debug(f"Response Headers: {dict(response.headers)}")
+        
+        # Check response status
+        if response.status_code == 200:
+            try:
+                response_data = response.json()
+                message_id = response_data.get("messages", [{}])[0].get("id")
+                
+                if not message_id:
+                    logger.warning("⚠️ No message_id in successful response")
+                
+                logger.info(f"✅ WhatsApp template sent successfully to {phone_clean}")
+                return {
+                    "success": True,
+                    "message": "Template message sent successfully",
+                    "phone": phone_clean,
+                    "original_phone": phone,
+                    "message_id": message_id,
+                    "template_name": template_name,
+                    "personalized_name": first_name,
+                    "api_version": "v23.0",
+                    "response": response_data
+                }
+            except json.JSONDecodeError as e:
+                error_msg = f"Failed to parse API response as JSON: {str(e)}"
+                logger.error(f"❌ JSON parsing error: {error_msg}")
+                logger.error(f"Raw response: {response.text}")
+                return {
+                    "success": False,
+                    "message": "Failed to parse API response",
+                    "phone": phone_clean,
+                    "original_phone": phone,
+                    "error": error_msg,
+                    "error_type": "response_parsing_error",
+                    "raw_response": response.text
+                }
+        else:
+            # Handle different error status codes
+            try:
+                error_response = response.json()
+                error_details = error_response.get("error", {})
+                error_code = error_details.get("code", "unknown")
+                error_message = error_details.get("message", "Unknown error")
+                error_type = error_details.get("type", "unknown")
+                
+                logger.error(f"❌ WhatsApp API Error {response.status_code}")
+                logger.error(f"Error Code: {error_code}")
+                logger.error(f"Error Type: {error_type}")
+                logger.error(f"Error Message: {error_message}")
+                
+                # Specific error handling
+                if response.status_code == 400:
+                    error_category = "bad_request"
+                elif response.status_code == 401:
+                    error_category = "authentication_error"
+                elif response.status_code == 403:
+                    error_category = "permission_error"
+                elif response.status_code == 429:
+                    error_category = "rate_limit_error"
+                elif response.status_code >= 500:
+                    error_category = "server_error"
+                else:
+                    error_category = "api_error"
+                
+                return {
+                    "success": False,
+                    "message": f"WhatsApp API error for {phone_clean}",
+                    "phone": phone_clean,
+                    "original_phone": phone,
+                    "error": f"API Error {response.status_code}: {error_message}",
+                    "error_type": error_category,
+                    "error_code": error_code,
+                    "error_details": error_details,
+                    "status_code": response.status_code
+                }
+            except json.JSONDecodeError:
+                # Non-JSON error response
+                error_msg = f"API Error {response.status_code}: {response.text}"
+                logger.error(f"❌ Non-JSON error response: {error_msg}")
+                return {
+                    "success": False,
+                    "message": f"WhatsApp API error for {phone_clean}",
+                    "phone": phone_clean,
+                    "original_phone": phone,
+                    "error": error_msg,
+                    "error_type": "api_error",
+                    "status_code": response.status_code,
+                    "raw_response": response.text
+                }
+            
+    except requests.exceptions.Timeout as e:
+        error_msg = f"Request timeout after 30 seconds: {str(e)}"
+        logger.error(f"❌ Timeout error for {phone}: {error_msg}")
+        return {
+            "success": False,
+            "message": f"Request timeout for {phone}",
+            "phone": phone,
+            "error": error_msg,
+            "error_type": "timeout_error"
+        }
+    except requests.exceptions.ConnectionError as e:
+        error_msg = f"Connection error: {str(e)}"
+        logger.error(f"❌ Connection error for {phone}: {error_msg}")
+        return {
+            "success": False,
+            "message": f"Connection failed for {phone}",
+            "phone": phone,
+            "error": error_msg,
+            "error_type": "connection_error"
+        }
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Request exception: {str(e)}"
+        logger.error(f"❌ Request exception for {phone}: {error_msg}")
+        return {
+            "success": False,
+            "message": f"Request failed for {phone}",
+            "phone": phone,
+            "error": error_msg,
+            "error_type": "request_error"
+        }
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(f"❌ Unexpected error for {phone}: {error_msg}")
+        logger.exception("Full exception details:")
+        return {
+            "success": False,
+            "message": f"Unexpected error for {phone}",
+            "phone": phone,
+            "error": error_msg,
+            "error_type": "unexpected_error"
+        }
+
+
 if __name__ == "__main__":
     import uvicorn
     logger.info("🚀 Starting WhatsApp Sender Service on port 8001")
