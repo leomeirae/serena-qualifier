@@ -39,7 +39,7 @@ class OCRToolInput:
     """
     Schema de entrada para o OCR Tool com suporte a extração estruturada.
     
-    TODO: Converter para Pydantic BaseModel quando LangChain for instalado.
+
     """
     action: str  # process_image, extract_fields, validate_invoice, identify_distributor, validate_structured
     media_id: Optional[str] = None

@@ -5,9 +5,6 @@ Template padronizado para classificação de intenções em conversas
 com leads sobre energia solar.
 """
 
-# TODO: Usar PromptTemplate quando LangChain for instalado
-# from langchain.prompts import PromptTemplate
-
 CLASSIFICATION_TEMPLATE = """
 Você é um especialista em energia solar da Serena Energia.
 
@@ -51,10 +48,4 @@ def get_classification_prompt(phone: str, current_message: str, conversation_his
         phone=phone,
         current_message=current_message,
         conversation_history=conversation_history or "Primeira mensagem da conversa"
-    )
-
-# TODO: Quando LangChain for instalado:
-# classification_prompt = PromptTemplate(
-#     input_variables=["phone", "current_message", "conversation_history"],
-#     template=CLASSIFICATION_TEMPLATE
-# ) 
+    ) 

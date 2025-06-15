@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-06-15T09:08:50.931610",
+  "timestamp": "2025-06-15T10:10:13.540812",
   "test_type": "REAL_PERFORMANCE_VALIDATION",
   "test_environment": {
     "phone_number": "+5581997498268",
@@ -10,19 +10,19 @@
   "services_status": {
     "Kestra API Search": {
       "status": "ONLINE",
-      "response_time": 0.021284818649291992,
+      "response_time": 0.012311220169067383,
       "status_code": 200
     },
     "WhatsApp Service": {
       "status": "ONLINE",
-      "response_time": 0.0101318359375,
+      "response_time": 0.0066297054290771484,
       "status_code": 200
     }
   },
   "sla_compliance": {
     "all_services_online": true,
-    "avg_response_time": 0.015708327293395996,
-    "max_response_time": 0.021284818649291992
+    "avg_response_time": 0.009470462799072266,
+    "max_response_time": 0.012311220169067383
   },
   "recommendations": [
     "Todos os servi\u00e7os est\u00e3o operacionais - sistema pronto para produ\u00e7\u00e3o"

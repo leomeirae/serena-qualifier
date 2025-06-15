@@ -11,15 +11,10 @@ import os
 from dotenv import load_dotenv
 
 # LangChain imports
-try:
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-    from langchain_openai import ChatOpenAI
-    from langchain.prompts import ChatPromptTemplate
-    from langchain.tools import Tool
-    LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LANGCHAIN_AVAILABLE = False
-    logging.warning("LangChain não disponível. Usando modo compatibilidade.")
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.tools import Tool
 
 # Import tools locais
 from .tools.conversation_tool import conversation_tool_function, conversation_tool_decorated
@@ -52,11 +47,11 @@ class SerenaAIAgent:
         self.agent_executor = None
         self.tools = []
         
-        # Setup LangChain se disponível
-        if LANGCHAIN_AVAILABLE and os.getenv("OPENAI_API_KEY"):
+        # Setup LangChain
+        if os.getenv("OPENAI_API_KEY"):
             self._setup_langchain()
         else:
-            logger.warning("Usando modo compatibilidade sem LangChain")
+            logger.warning("OPENAI_API_KEY não encontrada. LangChain não será inicializado.")
     
     def _setup_langchain(self):
         """Configura LangChain com tools e AgentExecutor."""
@@ -68,50 +63,8 @@ class SerenaAIAgent:
                 api_key=os.getenv("OPENAI_API_KEY")
             )
             
-            # Cria tools LangChain (usa decoradas se disponíveis)
-            self.tools = []
-            
-            # Conversation tool
-            if conversation_tool_decorated:
-                self.tools.append(conversation_tool_decorated)
-            else:
-                self.tools.append(Tool(
-                    name="conversation_manager",
-                    description="Gerencia conversas e histórico de mensagens com leads",
-                    func=lambda x: conversation_tool_function(eval(x) if isinstance(x, str) else x)
-                ))
-            
-            # Serena API tool
-            if serena_api_tool_decorated:
-                self.tools.append(serena_api_tool_decorated)
-            else:
-                self.tools.append(Tool(
-                    name="serena_api",
-                    description="Consulta API real da Serena para cobertura e planos de energia solar",
-                    func=lambda x: serena_api_tool_function(eval(x) if isinstance(x, str) else x)
-                ))
-            
-            # OCR tool melhorada com extração estruturada
-            self.tools.append(Tool(
-                name="ocr_processor", 
-                description="""Processa faturas de energia via OCR com extração estruturada avançada.
-                
-                Ações disponíveis:
-                - process_image: Processa imagem da fatura (requer media_id e phone_number)
-                - extract_fields: Extrai campos estruturados de texto OCR (requer ocr_text)
-                - validate_invoice: Valida dados extraídos (requer ocr_data)
-                - identify_distributor: Identifica distribuidora (requer ocr_text)
-                - validate_structured: Validação robusta (requer ocr_data)
-                - get_supported_distributors: Lista distribuidoras suportadas
-                
-                Extrai automaticamente: nome_cliente, distribuidora, valor_conta, consumo_kwh, 
-                endereco, vencimento, CPF/CNPJ. Qualifica leads baseado em valor mínimo R$ 200.
-                Suporta 20+ distribuidoras brasileiras (CEMIG, ENEL, LIGHT, CPFL, etc.)""",
-                func=lambda x: ocr_tool_function(eval(x) if isinstance(x, str) else x)
-            ))
-            
-            # RAG tool para dúvidas gerais
-            self.tools.append(rag_tool)
+            # Cria tools LangChain
+            self.tools = self._create_tools()
             
             # Prompt para o agente
             system_prompt = """Você é um especialista em energia solar da Serena Energia.
@@ -176,6 +129,54 @@ Mantenha tom profissional, foque em energia solar e economia."""
         except Exception as e:
             logger.error(f"Erro ao configurar LangChain: {e}")
             self.agent_executor = None
+    
+    def _create_tools(self):
+        """Cria e retorna lista de tools LangChain."""
+        tools = []
+        
+        # Conversation tool
+        if conversation_tool_decorated:
+            tools.append(conversation_tool_decorated)
+        else:
+            tools.append(Tool(
+                name="conversation_manager",
+                description="Gerencia conversas e histórico de mensagens com leads",
+                func=lambda x: conversation_tool_function(eval(x) if isinstance(x, str) else x)
+            ))
+        
+        # Serena API tool
+        if serena_api_tool_decorated:
+            tools.append(serena_api_tool_decorated)
+        else:
+            tools.append(Tool(
+                name="serena_api",
+                description="Consulta API real da Serena para cobertura e planos de energia solar",
+                func=lambda x: serena_api_tool_function(eval(x) if isinstance(x, str) else x)
+            ))
+        
+        # OCR tool melhorada com extração estruturada
+        tools.append(Tool(
+            name="ocr_processor", 
+            description="""Processa faturas de energia via OCR com extração estruturada avançada.
+            
+            Ações disponíveis:
+            - process_image: Processa imagem da fatura (requer media_id e phone_number)
+            - extract_fields: Extrai campos estruturados de texto OCR (requer ocr_text)
+            - validate_invoice: Valida dados extraídos (requer ocr_data)
+            - identify_distributor: Identifica distribuidora (requer ocr_text)
+            - validate_structured: Validação robusta (requer ocr_data)
+            - get_supported_distributors: Lista distribuidoras suportadas
+            
+            Extrai automaticamente: nome_cliente, distribuidora, valor_conta, consumo_kwh, 
+            endereco, vencimento, CPF/CNPJ. Qualifica leads baseado em valor mínimo R$ 200.
+            Suporta 20+ distribuidoras brasileiras (CEMIG, ENEL, LIGHT, CPFL, etc.)""",
+            func=lambda x: ocr_tool_function(eval(x) if isinstance(x, str) else x)
+        ))
+        
+        # RAG tool para dúvidas gerais
+        tools.append(rag_tool)
+        
+        return tools
     
     def process_conversation(
         self, 

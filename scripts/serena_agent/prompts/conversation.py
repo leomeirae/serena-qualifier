@@ -5,8 +5,7 @@ Template padronizado para respostas conversacionais do agente IA Serena,
 mantendo tom profissional e focado em energia solar.
 """
 
-# TODO: Usar PromptTemplate quando LangChain for instalado
-# from langchain.prompts import PromptTemplate
+
 
 CONVERSATION_TEMPLATE = """
 Você é um consultor especialista em energia solar da Serena Energia.
@@ -75,10 +74,4 @@ def get_conversation_prompt(
         intent=intent,
         conversation_history=conversation_history or "Primeira interação",
         lead_data=lead_data or "Nenhum dado coletado ainda"
-    )
-
-# TODO: Quando LangChain for instalado:
-# conversation_prompt = PromptTemplate(
-#     input_variables=["current_message", "intent", "conversation_history", "lead_data"],
-#     template=CONVERSATION_TEMPLATE
-# ) 
+    ) 

@@ -5,8 +5,7 @@ Template padronizado para extração de dados estruturados
 das conversas com leads.
 """
 
-# TODO: Usar PromptTemplate quando LangChain for instalado
-# from langchain.prompts import PromptTemplate
+
 
 EXTRACTION_TEMPLATE = """
 Você é um especialista em energia solar da Serena Energia.
@@ -53,10 +52,4 @@ def get_extraction_prompt(phone: str, current_message: str, conversation_history
         phone=phone,
         current_message=current_message,
         conversation_history=conversation_history or "Primeira mensagem da conversa"
-    )
-
-# TODO: Quando LangChain for instalado:
-# extraction_prompt = PromptTemplate(
-#     input_variables=["phone", "current_message", "conversation_history"],
-#     template=EXTRACTION_TEMPLATE
-# ) 
+    ) 

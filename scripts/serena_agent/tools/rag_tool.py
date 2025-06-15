@@ -7,6 +7,7 @@ que utiliza FAISS para busca semântica em uma base de conhecimento local.
 
 import os
 import pickle
+import logging
 from typing import List, Optional, Type
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from dotenv import load_dotenv
 
 # Carrega variáveis de ambiente
 load_dotenv()
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 
 class RAGToolInput(BaseModel):
@@ -102,9 +106,9 @@ class RAGTool(BaseTool):
                     content = f.read().strip()
                     if content:
                         documents.append(content)
-                        print(f"✅ Carregado: {file_path.name}")
+                        logger.info(f"✅ Carregado: {file_path.name}")
             except Exception as e:
-                print(f"❌ Erro ao carregar {file_path}: {e}")
+                logger.error(f"❌ Erro ao carregar {file_path}: {e}")
         
         if not documents:
             raise ValueError("Nenhum documento encontrado na knowledge_base")
@@ -121,14 +125,14 @@ class RAGTool(BaseTool):
         Returns:
             List[str]: Lista de chunks de texto
         """
-        all_chunks = []
+        document_chunks = []
         
         for doc in documents:
             chunks = RAGTool._text_splitter.split_text(doc)
-            all_chunks.extend(chunks)
+            document_chunks.extend(chunks)
         
-        print(f"📄 Documentos divididos em {len(all_chunks)} chunks")
-        return all_chunks
+        logger.info(f"📄 Documentos divididos em {len(document_chunks)} chunks")
+        return document_chunks
     
     def _create_embeddings(self, texts: List[str]) -> np.ndarray:
         """
@@ -140,7 +144,7 @@ class RAGTool(BaseTool):
         Returns:
             np.ndarray: Array de embeddings
         """
-        print("🔄 Criando embeddings...")
+        logger.info("🔄 Criando embeddings...")
         
         # Reason: Processa em batches para evitar limites de API
         batch_size = 100
@@ -150,7 +154,7 @@ class RAGTool(BaseTool):
             batch = texts[i:i + batch_size]
             batch_embeddings = RAGTool._embeddings.embed_documents(batch)
             all_embeddings.extend(batch_embeddings)
-            print(f"✅ Processado batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}")
+            logger.info(f"✅ Processado batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}")
         
         return np.array(all_embeddings, dtype=np.float32)
     
@@ -164,7 +168,7 @@ class RAGTool(BaseTool):
         Returns:
             faiss.Index: Índice FAISS criado
         """
-        print("🔍 Criando índice FAISS...")
+        logger.info("🔍 Criando índice FAISS...")
         
         # Reason: Usa IndexFlatIP para busca por similaridade de cosseno
         dimension = embeddings.shape[1]
@@ -174,7 +178,7 @@ class RAGTool(BaseTool):
         faiss.normalize_L2(embeddings)
         index.add(embeddings)
         
-        print(f"✅ Índice FAISS criado com {index.ntotal} vetores")
+        logger.info(f"✅ Índice FAISS criado com {index.ntotal} vetores")
         return index
     
     def _save_index(self):
@@ -191,10 +195,10 @@ class RAGTool(BaseTool):
             with open(RAGTool._documents_path, 'wb') as f:
                 pickle.dump(RAGTool._documents, f)
             
-            print("💾 Índice e documentos salvos em disco")
+            logger.info("💾 Índice e documentos salvos em disco")
             
         except Exception as e:
-            print(f"❌ Erro ao salvar índice: {e}")
+            logger.error(f"❌ Erro ao salvar índice: {e}")
     
     def _load_index(self) -> bool:
         """
@@ -217,23 +221,23 @@ class RAGTool(BaseTool):
             with open(RAGTool._documents_path, 'rb') as f:
                 RAGTool._documents = pickle.load(f)
             
-            print("📂 Índice e documentos carregados do disco")
+            logger.info("📂 Índice e documentos carregados do disco")
             return True
             
         except Exception as e:
-            print(f"❌ Erro ao carregar índice: {e}")
+            logger.error(f"❌ Erro ao carregar índice: {e}")
             return False
     
     def _load_or_create_index(self):
         """Carrega índice existente ou cria um novo."""
-        print("🚀 Inicializando RAG Tool...")
+        logger.info("🚀 Inicializando RAG Tool...")
         
         # Tenta carregar índice existente
         if self._load_index():
-            print("✅ Usando índice existente")
+            logger.info("✅ Usando índice existente")
             return
         
-        print("🔨 Criando novo índice...")
+        logger.info("🔨 Criando novo índice...")
         
         # Carrega e processa documentos
         raw_documents = self._load_knowledge_base()
@@ -246,7 +250,7 @@ class RAGTool(BaseTool):
         # Salva para uso futuro
         self._save_index()
         
-        print("✅ RAG Tool inicializado com sucesso")
+        logger.info("✅ RAG Tool inicializado com sucesso")
     
     def _search_similar_documents(self, query: str, k: int = 3) -> List[tuple]:
         """

@@ -165,11 +165,11 @@ def identify_distribuidora(ocr_text: str) -> Optional[str]:
     Returns:
         str: Nome da distribuidora identificada ou None
     """
-    ocr_upper = ocr_text.upper()
+    normalized_ocr_text = ocr_text.upper()
     
     for distribuidora, aliases in DISTRIBUIDORAS_CONHECIDAS.items():
         for alias in aliases:
-            if alias in ocr_upper:
+            if alias in normalized_ocr_text:
                 logger.info(f"✅ Distribuidora identificada: {distribuidora} (via '{alias}')")
                 return distribuidora
     
@@ -196,8 +196,8 @@ def extract_with_multiple_patterns(text: str, patterns: List[str]) -> Optional[s
                 # Limpeza adicional para nomes - remover palavras-chave comuns no final
                 if any(keyword in pattern.upper() for keyword in ["CLIENTE", "NOME", "TITULAR"]):
                     # Remove palavras comuns que podem aparecer após o nome
-                    cleanup_words = ["CPF", "CNPJ", "TOTAL", "VALOR", "ENDEREÇO", "END"]
-                    for word in cleanup_words:
+                    excluded_keywords_after_name = ["CPF", "CNPJ", "TOTAL", "VALOR", "ENDEREÇO", "END"]
+                    for word in excluded_keywords_after_name:
                         if word in result.upper():
                             result = result[:result.upper().find(word)].strip()
                             break
