@@ -1,0 +1,533 @@
+id: ai-conversation
+namespace: serena.energia
+description: "Workflow de Conversação IA com Timeout/Lembrete - Arquitetura Dois Workflows"
+
+labels:
+  version: "6.0.0"
+  environment: "production"
+  system: "serena-qualifier"
+  framework: "langchain"
+  agent: "serena-ai-agent"
+  docker_strategy: "custom_image"
+  architecture: "two_workflows"
+  flow_type: "conversation"
+
+# Trigger Webhook para receber TODAS as mensagens do lead
+triggers:
+  - id: whatsapp-conversation-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "ai_conversation_webhook"
+
+inputs:
+  - id: lead_phone
+    type: STRING
+    required: false
+  - id: lead_message
+    type: STRING
+    required: false
+  - id: message_type
+    type: STRING
+    required: false
+    defaults: "text"
+  - id: message_id
+    type: STRING
+    required: false
+  - id: media_id
+    type: STRING
+    required: false
+  - id: conversation_id
+    type: STRING
+    required: false
+  - id: lead_context
+    type: JSON
+    required: false
+
+tasks:
+  # TASK 1: Análise Inteligente Unificada
+  - id: intelligent-analysis
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Análise inteligente usando SerenaAIAgent com LangChain - Imagem Customizada"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      DEBUG: "true"
+      MIN_QUALIFY_AMOUNT: "100"
+      LEAD_PHONE: "{{ inputs.lead_phone | default(trigger.body.lead_phone | default('')) }}"
+      LEAD_MESSAGE: "{{ inputs.lead_message | default(trigger.body.lead_message | default('')) }}"
+      MESSAGE_TYPE: "{{ inputs.message_type | default(trigger.body.message_type | default('text')) }}"
+      MESSAGE_ID: "{{ inputs.message_id | default(trigger.body.message_id | default('')) }}"
+      MEDIA_ID: "{{ inputs.media_id | default(trigger.body.media_id | default('')) }}"
+      CONVERSATION_ID: "{{ inputs.conversation_id | default(trigger.body.conversation_id | default('')) }}"
+      LEAD_CONTEXT: "{{ inputs.lead_context | default(trigger.body.lead_context | default('{}')) | json }}"
+    script: |
+      # Carregar variáveis de ambiente
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      # Importar SerenaAIAgent otimizado
+      from scripts.serena_agent.core_agent import SerenaAIAgent
+      import json
+      import time
+      import os
+      
+      phone = os.getenv("LEAD_PHONE")
+      message = os.getenv("LEAD_MESSAGE")
+      msg_type = os.getenv("MESSAGE_TYPE")
+      msg_id = os.getenv("MESSAGE_ID")
+      media_id = os.getenv("MEDIA_ID")
+      conversation_id = os.getenv("CONVERSATION_ID")
+      lead_context = json.loads(os.getenv("LEAD_CONTEXT", "{}"))
+      
+      print(f"🚀 AI-CONVERSATION V6 - Lead {phone}")
+      print(f"💬 Mensagem: '{message}'")
+      print(f"🔗 Conversation ID: {conversation_id}")
+      print(f"🏗️ Arquitetura: Dois Workflows Desacoplados")
+      
+      start_time = time.time()
+      agent = SerenaAIAgent()
+      
+      try:
+          # 1. Classificação + 2. Extração em paralelo
+          classify_result = agent.process_conversation(phone, message, "classify")
+          extract_result = agent.process_conversation(phone, message, "extract")
+          
+          intention = classify_result.get("response", "unclear")
+          
+          try:
+              extracted_data = json.loads(extract_result.get("response", "{}"))
+          except json.JSONDecodeError:
+              extracted_data = {"phone": phone}
+          
+          # 3. Detectar fatura
+          is_invoice = (
+              msg_type in ["image", "document"] or 
+              intention in ["send_invoice", "enviou_fatura"] or
+              "fatura" in message.lower()
+          )
+          
+          analysis_context = {
+              "phone": phone,
+              "message": message,
+              "message_type": msg_type,
+              "media_id": media_id,
+              "conversation_id": conversation_id,
+              "lead_context": lead_context,
+              "intention": intention,
+              "extracted_data": extracted_data,
+              "is_invoice": is_invoice,
+              "needs_ocr": is_invoice and bool(media_id),
+              "has_langchain": agent.agent_executor is not None,
+              "processing_time": time.time() - start_time,
+              "analysis_success": True,
+              "workflow_version": "v6_two_workflows",
+              "architecture": "conversation_flow"
+          }
+          
+          print(f"✅ Intenção: {intention}")
+          print(f"📄 É fatura: {is_invoice}")
+          print(f"🔧 Estratégia: Dois Workflows + Timeout")
+          
+      except Exception as e:
+          print(f"❌ Erro: {str(e)}")
+          analysis_context = {
+              "phone": phone,
+              "message": message,
+              "conversation_id": conversation_id,
+              "analysis_success": False,
+              "error": str(e),
+              "error_type": type(e).__name__,
+              "is_invoice": False,
+              "workflow_version": "v6_two_workflows"
+          }
+      
+      print('::' + json.dumps({"outputs": {"analysis_context": analysis_context}}) + '::')
+
+  # TASK 2: OCR Inteligente (condicional)
+  - id: smart-ocr-processing
+    type: io.kestra.plugin.scripts.python.Script
+    runIf: "{{ outputs['intelligent-analysis'].vars.analysis_context.needs_ocr == true }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      ANALYSIS_CONTEXT: "{{ outputs['intelligent-analysis'].vars.analysis_context | json }}"
+    script: |
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.serena_agent.tools.ocr_tool import ocr_tool_function
+      import os
+      import json
+      import time
+      
+      context = json.loads(os.getenv("ANALYSIS_CONTEXT", "{}"))
+      phone = context.get("phone")
+      media_id = context.get("media_id")
+      conversation_id = context.get("conversation_id")
+      
+      print(f"📄 OCR INTELIGENTE V6 - Lead {phone}")
+      print(f"🔗 Conversation ID: {conversation_id}")
+      print(f"🏗️ Arquitetura: Dois Workflows")
+      
+      try:
+          start_time = time.time()
+          
+          # Processar fatura
+          amount_result = ocr_tool_function({
+              "action": "extract_amount",
+              "image_data": media_id
+          })
+          
+          ocr_data = {
+              "amount": amount_result.get("result", {}).get("amount", 0),
+              "success": amount_result.get("success", False),
+              "processing_time": time.time() - start_time
+          }
+          
+          valor_conta = ocr_data["amount"]
+          min_amount = float(os.getenv("MIN_QUALIFY_AMOUNT", "100"))
+          is_qualified = valor_conta >= min_amount
+          
+          ocr_data.update({
+              "valor_conta": valor_conta,
+              "is_qualified": is_qualified
+          })
+          
+          print(f"💰 Valor: R$ {valor_conta:.2f}")
+          print(f"✅ Qualificado: {is_qualified}")
+          
+          context["ocr_result"] = ocr_data
+          context["is_invoice_processed"] = True
+          
+      except Exception as e:
+          print(f"❌ Erro OCR: {str(e)}")
+          context["ocr_result"] = {"error": str(e), "success": False}
+      
+      print('::' + json.dumps({"outputs": {"ocr_context": context}}) + '::')
+
+  # TASK 3: Resposta LangChain
+  - id: langchain-response
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      ANALYSIS_CONTEXT: "{{ outputs['intelligent-analysis'].vars.analysis_context | json }}"
+      OCR_CONTEXT: "{{ outputs['smart-ocr-processing'].vars.ocr_context | json | default('{}') }}"
+    script: |
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.serena_agent.core_agent import SerenaAIAgent
+      import os
+      import json
+      import time
+      
+      analysis_ctx = json.loads(os.getenv("ANALYSIS_CONTEXT", "{}"))
+      ocr_ctx = json.loads(os.getenv("OCR_CONTEXT", "{}"))
+      
+      context = ocr_ctx if ocr_ctx else analysis_ctx
+      
+      phone = context.get("phone")
+      message = context.get("message")
+      intention = context.get("intention")
+      conversation_id = context.get("conversation_id")
+      
+      print(f"🤖 RESPOSTA LANGCHAIN V6 - Lead {phone}")
+      print(f"🎯 Intenção: {intention}")
+      print(f"🔗 Conversation ID: {conversation_id}")
+      print(f"🏗️ Arquitetura: Dois Workflows")
+      
+      try:
+          start_time = time.time()
+          agent = SerenaAIAgent()
+          
+          # Preparar contexto
+          if context.get("is_invoice_processed"):
+              ocr_result = context.get("ocr_result", {})
+              enhanced_message = f"Lead enviou fatura. Valor: R$ {ocr_result.get('valor_conta', 0):.2f}. Qualificado: {ocr_result.get('is_qualified', False)}. Mensagem: {message}"
+          else:
+              enhanced_message = f"Conversa com lead. Intenção: {intention}. Mensagem: {message}"
+          
+          # RESPOSTA VIA LANGCHAIN
+          response_result = agent.process_conversation(phone, enhanced_message, "respond")
+          
+          ai_response = response_result.get("response", "Problema técnico")
+          method_used = response_result.get("method", "unknown")
+          
+          final_context = {
+              **context,
+              "ai_response": ai_response,
+              "method_used": method_used,
+              "response_time": time.time() - start_time,
+              "response_success": True
+          }
+          
+          print(f"💬 Resposta: '{ai_response[:80]}...'")
+          print(f"⚙️  Método: {method_used}")
+          
+      except Exception as e:
+          print(f"❌ Erro: {str(e)}")
+          final_context = {
+              **context,
+              "ai_response": "Desculpe, problema técnico.",
+              "error": str(e)
+          }
+      
+      print('::' + json.dumps({"outputs": {"final_context": final_context}}) + '::')
+
+  # TASK 4: Envio da Primeira Mensagem
+  - id: send-first-message
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      DEBUG: "false"
+      WHATSAPP_API_URL: "http://whatsapp-service:8000/whatsapp/send_text_message"
+      FINAL_CONTEXT: "{{ outputs['langchain-response'].vars.final_context | json }}"
+    script: |
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      import json
+      import requests
+      import time
+      
+      context = json.loads(os.getenv("FINAL_CONTEXT", "{}"))
+      phone = context.get("phone")
+      ai_response = context.get("ai_response")
+      method_used = context.get("method_used", "unknown")
+      conversation_id = context.get("conversation_id")
+      
+      print(f"📱 ENVIO PRIMEIRA MENSAGEM V6 - Lead {phone}")
+      print(f"🔗 Conversation ID: {conversation_id}")
+      print(f"⚙️  Método: {method_used}")
+      print(f"🏗️ Arquitetura: Dois Workflows + Timeout")
+      
+      try:
+          # Enviar mensagem
+          whatsapp_url = os.getenv("WHATSAPP_API_URL", "http://whatsapp-service:8000/whatsapp/send_text_message")
+          payload = {"phone": phone, "message": ai_response}
+          
+          response = requests.post(whatsapp_url, json=payload, timeout=30)
+          response.raise_for_status()
+          
+          result = response.json()
+          message_id = result.get("message_id", "")
+          
+          print(f"✅ Primeira mensagem enviada! ID: {message_id}")
+          
+          # Analytics da primeira mensagem
+          analytics = {
+              "workflow_version": "v6_two_workflows",
+              "framework": method_used,
+              "langchain_used": method_used == "langchain",
+              "invoice_processed": context.get("is_invoice_processed", False),
+              "qualified": context.get("ocr_result", {}).get("is_qualified", False),
+              "first_message_sent": True,
+              "conversation_id": conversation_id,
+              "timestamp": time.time(),
+              "architecture": "two_workflows",
+              "timeout_enabled": True
+          }
+          
+          first_message_result = {
+              "success": True,
+              "message_id": message_id,
+              "conversation_id": conversation_id,
+              "phone": phone,
+              "analytics": analytics,
+              "ready_for_timeout": True
+          }
+          
+      except Exception as e:
+          print(f"❌ Erro: {str(e)}")
+          first_message_result = {
+              "success": False, 
+              "error": str(e),
+              "conversation_id": conversation_id,
+              "phone": phone
+          }
+      
+      print('::' + json.dumps({"outputs": {"first_message_result": first_message_result}}) + '::')
+
+  # TASK 5: WaitForWebhook com Timeout de 2 Horas
+  - id: wait-for-response
+    type: io.kestra.plugin.core.flow.WaitForWebhook
+    description: "Aguarda resposta do lead por 2 horas - se não responder, aciona lembrete"
+    key: "{{ outputs['send-first-message'].vars.first_message_result.conversation_id }}"
+    timeout: "PT2H"  # ISO 8601: 2 horas
+    onTimeout:
+      - id: send-reminder-message
+        type: io.kestra.plugin.scripts.python.Script
+        description: "Envia mensagem de lembrete quando timeout é atingido"
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+          image: "serena-runner:latest"
+          pullPolicy: "NEVER"
+          networkMode: "serena-qualifier_kestra-network"
+          fileHandlingStrategy: VOLUME
+        env:
+          WHATSAPP_API_URL: "http://whatsapp-service:8000/whatsapp/send_text_message"
+          FIRST_MESSAGE_RESULT: "{{ outputs['send-first-message'].vars.first_message_result | json }}"
+        script: |
+          from dotenv import load_dotenv
+          load_dotenv('/app/.env')
+          
+          import json
+          import requests
+          import time
+          import os
+          
+          first_msg_result = json.loads(os.getenv("FIRST_MESSAGE_RESULT", "{}"))
+          phone = first_msg_result.get("phone")
+          conversation_id = first_msg_result.get("conversation_id")
+          
+          print(f"⏰ TIMEOUT ATINGIDO - Enviando lembrete para {phone}")
+          print(f"🔗 Conversation ID: {conversation_id}")
+          print(f"⏱️  Timeout: 2 horas sem resposta")
+          
+          # Mensagem de lembrete personalizada
+          reminder_message = "Oi! 😊\n\nNotei que você não respondeu nossa conversa anterior sobre energia solar.\n\nAinda tem interesse em economizar na conta de luz? Posso te ajudar a encontrar o melhor plano para sua região! ⚡\n\nÉ só me responder que continuamos de onde paramos! 👍"
+          
+          try:
+              # Enviar lembrete
+              whatsapp_url = os.getenv("WHATSAPP_API_URL", "http://whatsapp-service:8000/whatsapp/send_text_message")
+              payload = {"phone": phone, "message": reminder_message}
+              
+              response = requests.post(whatsapp_url, json=payload, timeout=30)
+              response.raise_for_status()
+              
+              result = response.json()
+              reminder_message_id = result.get("message_id", "")
+              
+              print(f"✅ Lembrete enviado! ID: {reminder_message_id}")
+              
+              # Analytics do lembrete
+              reminder_analytics = {
+                  "reminder_sent": True,
+                  "reminder_message_id": reminder_message_id,
+                  "timeout_duration": "PT2H",
+                  "conversation_id": conversation_id,
+                  "timestamp": time.time(),
+                  "workflow_version": "v6_two_workflows",
+                  "architecture": "timeout_reminder"
+              }
+              
+              reminder_result = {
+                  "success": True,
+                  "reminder_message_id": reminder_message_id,
+                  "conversation_id": conversation_id,
+                  "phone": phone,
+                  "analytics": reminder_analytics
+              }
+              
+          except Exception as e:
+              print(f"❌ Erro ao enviar lembrete: {str(e)}")
+              reminder_result = {
+                  "success": False,
+                  "error": str(e),
+                  "conversation_id": conversation_id,
+                  "phone": phone
+              }
+          
+          print('::' + json.dumps({"outputs": {"reminder_result": reminder_result}}) + '::')
+
+  # TASK 6: Processar Resposta do Lead (quando responde antes do timeout)
+  - id: process-lead-response
+    type: io.kestra.plugin.scripts.python.Script
+    runIf: "{{ outputs['wait-for-response'].vars.webhook_data is defined }}"
+    description: "Processa resposta do lead quando ele responde antes do timeout"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      WEBHOOK_DATA: "{{ outputs['wait-for-response'].vars.webhook_data | json }}"
+      FIRST_MESSAGE_RESULT: "{{ outputs['send-first-message'].vars.first_message_result | json }}"
+    script: |
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      from scripts.serena_agent.core_agent import SerenaAIAgent
+      import json
+      import requests
+      import time
+      import os
+      
+      webhook_data = json.loads(os.getenv("WEBHOOK_DATA", "{}"))
+      first_msg_result = json.loads(os.getenv("FIRST_MESSAGE_RESULT", "{}"))
+      
+      phone = webhook_data.get("lead_phone", first_msg_result.get("phone"))
+      lead_message = webhook_data.get("lead_message", "")
+      conversation_id = first_msg_result.get("conversation_id")
+      
+      print(f"💬 RESPOSTA RECEBIDA - Lead {phone}")
+      print(f"🔗 Conversation ID: {conversation_id}")
+      print(f"📝 Mensagem: '{lead_message}'")
+      print(f"⏱️  Respondeu antes do timeout!")
+      
+      try:
+          # Processar resposta com IA
+          agent = SerenaAIAgent()
+          response_result = agent.process_conversation(phone, lead_message, "respond")
+          
+          ai_response = response_result.get("response", "Obrigado pela resposta!")
+          
+          # Enviar resposta
+          whatsapp_url = os.getenv("WHATSAPP_API_URL", "http://whatsapp-service:8000/whatsapp/send_text_message")
+          payload = {"phone": phone, "message": ai_response}
+          
+          response = requests.post(whatsapp_url, json=payload, timeout=30)
+          response.raise_for_status()
+          
+          result = response.json()
+          response_message_id = result.get("message_id", "")
+          
+          print(f"✅ Resposta enviada! ID: {response_message_id}")
+          
+          # Analytics da resposta
+          response_analytics = {
+              "lead_responded": True,
+              "timeout_avoided": True,
+              "response_message_id": response_message_id,
+              "conversation_id": conversation_id,
+              "timestamp": time.time(),
+              "workflow_version": "v6_two_workflows"
+          }
+          
+          lead_response_result = {
+              "success": True,
+              "response_message_id": response_message_id,
+              "conversation_id": conversation_id,
+              "phone": phone,
+              "timeout_avoided": True,
+              "analytics": response_analytics
+          }
+          
+      except Exception as e:
+          print(f"❌ Erro ao processar resposta: {str(e)}")
+          lead_response_result = {
+              "success": False,
+              "error": str(e),
+              "conversation_id": conversation_id,
+              "phone": phone
+          }
+      
+      print('::' + json.dumps({"outputs": {"lead_response_result": lead_response_result}}) + '::')

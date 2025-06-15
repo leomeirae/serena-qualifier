@@ -1,0 +1,16 @@
+{
+  "timestamp": "2025-06-15 08:09:42",
+  "slas_defined": {
+    "fluxo_1_latencia": "< 5s",
+    "ia_response_p95": "< 3s",
+    "disponibilidade": "> 99.9%",
+    "ocr_success_rate": "> 90%",
+    "api_timeout": "\u2264 15s",
+    "task_timeout": "< 90s"
+  },
+  "test_results": {
+    "all_slas_passed": true,
+    "critical_issues": [],
+    "recommendations": []
+  }
+}

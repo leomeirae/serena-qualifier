@@ -18,3 +18,7 @@ tenacity==8.2.2
 langchain>=0.2.0
 langchain-openai>=0.1.0
 langchain-community>=0.2.0
+
+# RAG dependencies (NOVO)
+faiss-cpu==1.8.0
+tiktoken==0.7.0

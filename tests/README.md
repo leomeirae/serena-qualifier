@@ -19,6 +19,22 @@ pytest -v -s
 pytest tests/test_serena_api.py::TestPlans -v
 ```
 
+### Testes de timeout/lembrete:
+```bash
+pytest tests/test_timeout_functionality.py -v
+pytest tests/test_waitforwebhook_behavior.py -v
+```
+
+### Testes de funcionalidade RAG:
+```bash
+pytest tests/test_rag_functionality.py -v
+```
+
+### Testes unitários (rápidos):
+```bash
+pytest tests/test_timeout_functionality.py -m "not integration and not slow" -v
+```
+
 ### Gerar relatório de cobertura:
 ```bash
 pytest --cov=scripts --cov-report=html
@@ -50,6 +66,28 @@ pytest --cov=scripts --cov-report=html
 - Testa tratamento de erros
 - Valida configuração de credenciais
 - Testa comportamento com inputs inválidos
+
+### `TestTimeoutFunctionality` (NOVO)
+- Testa funcionalidade de timeout/lembrete do workflow ai-conversation.yml
+- Valida configuração de WaitForWebhook (2 horas)
+- Testa envio automático de lembrete após timeout
+- Testa processamento de resposta antes do timeout
+- Valida analytics e estrutura de dados
+
+### `TestWaitForWebhookBehavior` (NOVO)
+- Testa comportamento específico do WaitForWebhook
+- Valida gerenciamento de chaves de webhook
+- Testa cenários de múltiplas respostas
+- Valida tratamento de erros durante timeout
+- Testa analytics de timeout vs resposta
+
+### `TestRAGFunctionality` (NOVO)
+- Testa funcionalidade RAG (Retrieval-Augmented Generation)
+- Valida schema de input da RAGTool
+- Testa componentes isolados (text splitting, similarity filtering)
+- Valida operações de arquivo (carregamento knowledge base)
+- Testa tratamento de erros (diretórios inexistentes, arquivos vazios)
+- Valida lógica de geração de respostas com threshold de relevância
 
 ## 🔧 Fixtures
 

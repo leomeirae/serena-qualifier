@@ -1,0 +1,193 @@
+id: lead-activation
+namespace: serena.energia
+labels:
+  version: "1.0.0"
+  environment: "production"
+  system: "serena-qualifier"
+  flow_type: "lead_activation"
+
+description: "Fluxo 1: Ativação do Lead - Captura e envio de mensagem inicial via WhatsApp"
+
+triggers:
+  - id: lead-capture-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "lead_activation_webhook"
+    uri: "/capture"
+
+inputs:
+  - id: name
+    type: STRING
+    required: true
+  - id: email
+    type: STRING
+    required: true
+  - id: phone
+    type: STRING
+    required: true
+  - id: city
+    type: STRING
+    required: true
+
+tasks:
+  # TASK 1: Salvar lead no Supabase
+  - id: save-initial-lead
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Salva os dados do lead na tabela leads_iniciados do Supabase"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      LEAD_NAME: "{{ inputs.name }}"
+      LEAD_EMAIL: "{{ inputs.email }}"
+      LEAD_PHONE: "{{ inputs.phone }}"
+      LEAD_CITY: "{{ inputs.city }}"
+      SUPABASE_URL: "{{ envs.SUPABASE_URL }}"
+      SUPABASE_ANON_KEY: "{{ envs.SUPABASE_ANON_KEY }}"
+    script: |
+      """
+      Task: save-initial-lead
+      Salva dados do lead na tabela leads_iniciados do Supabase.
+      Gera conversation_id único. Valida campos obrigatórios.
+      """
+      import os
+      import uuid
+      import json
+      from supabase import create_client, Client
+
+      # Coleta variáveis de ambiente
+      name = os.getenv("LEAD_NAME", "").strip()
+      email = os.getenv("LEAD_EMAIL", "").strip()
+      phone = os.getenv("LEAD_PHONE", "").strip()
+      city = os.getenv("LEAD_CITY", "").strip()
+      supabase_url = os.getenv("SUPABASE_URL")
+      supabase_key = os.getenv("SUPABASE_ANON_KEY")
+
+      # Validação de campos obrigatórios
+      missing = []
+      for field, value in [("name", name), ("email", email), ("phone", phone), ("city", city)]:
+          if not value:
+              missing.append(field)
+      if missing:
+          print('::' + json.dumps({"outputs": {"success": False, "error": f"Campos obrigatórios ausentes: {', '.join(missing)}"}}) + '::')
+          exit(1)
+
+      # Geração de conversation_id único
+      conversation_id = str(uuid.uuid4())
+
+      # Monta payload
+      lead_data = {
+          "name": name,
+          "email": email,
+          "phone": phone,
+          "city": city,
+          "conversation_id": conversation_id
+      }
+
+      # Conecta ao Supabase e insere
+      try:
+          if not supabase_url or not supabase_key:
+              raise ValueError("SUPABASE_URL e SUPABASE_ANON_KEY são obrigatórios.")
+          supabase: Client = create_client(supabase_url, supabase_key)
+          result = supabase.table("leads_iniciados").insert(lead_data).execute()
+          # Razão: Garante que o lead foi salvo corretamente
+          print('::' + json.dumps({"outputs": {"success": True, "conversation_id": conversation_id, "lead_id": result.data[0]["id"]}}) + '::')
+      except Exception as e:
+          # Razão: Tratamento robusto de erro de conexão ou inserção
+          print('::' + json.dumps({"outputs": {"success": False, "error": str(e)}}) + '::')
+          exit(1)
+
+  # TASK 2: Enviar template WhatsApp
+  - id: send-activation-template
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envia o template 'Ativar Perfil!' via WhatsApp API"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      LEAD_PHONE: "{{ inputs.phone }}"
+      LEAD_NAME: "{{ inputs.name }}"
+      CONVERSATION_ID: "{{ outputs['save-initial-lead'].vars.conversation_id }}"
+      WHATSAPP_API_URL: "http://whatsapp-service:8000/whatsapp/send_template_message"
+    script: |
+      """
+      Task: send-activation-template
+      Envia o template 'Ativar Perfil!' via WhatsApp API com retry e tratamento de erros.
+      """
+      import os
+      import json
+      import requests
+      import time
+
+      phone = os.getenv("LEAD_PHONE", "").strip()
+      name = os.getenv("LEAD_NAME", "").strip()
+      conversation_id = os.getenv("CONVERSATION_ID", "").strip()
+      whatsapp_url = os.getenv("WHATSAPP_API_URL")
+
+      # Monta payload para template
+      payload = {
+          "phone": phone,
+          "template_name": "ativar_perfil",
+          "template_params": {
+              "nome": name
+          },
+          "conversation_id": conversation_id
+      }
+
+      max_retries = 3
+      backoff = [1, 2, 4]  # segundos
+      success = False
+      message_id = None
+      error_msg = None
+
+      for attempt in range(max_retries):
+          try:
+              response = requests.post(whatsapp_url, json=payload, timeout=15)
+              response.raise_for_status()
+              result = response.json()
+              message_id = result.get("message_id")
+              success = True
+              break
+          except Exception as e:
+              error_msg = str(e)
+              if attempt < max_retries - 1:
+                  time.sleep(backoff[attempt])
+
+      if success:
+          print('::' + json.dumps({"outputs": {"success": True, "message_id": message_id, "conversation_id": conversation_id}}) + '::')
+      else:
+          print('::' + json.dumps({"outputs": {"success": False, "error": error_msg, "conversation_id": conversation_id}}) + '::')
+          exit(1)
+
+  # TASK 3: Acionar workflow de conversa com IA
+  - id: trigger-ai-conversation
+    type: io.kestra.plugin.core.http.Request
+    description: "Aciona o workflow ai-conversation.yml via HTTP webhook após ativação do lead"
+    method: POST
+    url: "http://kestra:8080/api/v1/executions/webhook/serena.energia/ai-conversation/ai_conversation_webhook"
+    headers:
+      Content-Type: application/json
+    body: |
+      {
+        "lead_phone": "{{ inputs.phone }}",
+        "lead_name": "{{ inputs.name }}",
+        "conversation_id": "{{ outputs['save-initial-lead'].vars.conversation_id }}",
+        "city": "{{ inputs.city }}"
+      }
+    retry:
+      maxAttempts: 3
+      backoff: 2s
+    error:
+      - id: ai-conv-error
+        type: io.kestra.plugin.core.log.Log
+        message: "Erro ao acionar ai-conversation.yml: {{ error.message }}"
+
+error:
+  - id: error-handler
+    type: io.kestra.plugin.core.log.Log
+    message: "Erro no workflow de ativação do lead: {{ error.message }}" 
