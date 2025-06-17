@@ -11,10 +11,10 @@ import os
 from dotenv import load_dotenv
 
 # LangChain imports
-from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.tools import Tool
+    from langchain.agents import AgentExecutor, create_openai_tools_agent
+    from langchain_openai import ChatOpenAI
+    from langchain.prompts import ChatPromptTemplate
+    from langchain.tools import Tool
 
 # Import tools locais
 from .tools.conversation_tool import conversation_tool_function, conversation_tool_decorated

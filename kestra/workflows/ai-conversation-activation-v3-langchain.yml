@@ -11,7 +11,8 @@ tasks:
   - id: intelligent-analysis
     type: io.kestra.plugin.scripts.python.Script
     description: "Análise inteligente usando SerenaAIAgent com LangChain"
-    docker:
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
     beforeCommands:
       - pip install langchain openai supabase python-dotenv requests pillow
@@ -55,7 +56,8 @@ tasks:
   - id: smart-ocr-processing
     type: io.kestra.plugin.scripts.python.Script
     description: "Processamento OCR condicional para faturas"
-    docker:
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
     beforeCommands:
       - pip install requests python-dotenv pillow
@@ -105,7 +107,8 @@ tasks:
   - id: langchain-response
     type: io.kestra.plugin.scripts.python.Script
     description: "Geração de resposta via LangChain/OpenAI"
-    docker:
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
     beforeCommands:
       - pip install langchain openai supabase python-dotenv
@@ -148,7 +151,8 @@ tasks:
   - id: send-first-message
     type: io.kestra.plugin.scripts.python.Script
     description: "Envio da primeira mensagem da IA"
-    docker:
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
     beforeCommands:
       - pip install requests python-dotenv
@@ -190,7 +194,8 @@ tasks:
   - id: save-conversation-state
     type: io.kestra.plugin.scripts.python.Script
     description: "Salva estado da conversa no Supabase"
-    docker:
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
     beforeCommands:
       - pip install supabase python-dotenv

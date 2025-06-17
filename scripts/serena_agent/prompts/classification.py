@@ -48,4 +48,4 @@ def get_classification_prompt(phone: str, current_message: str, conversation_his
         phone=phone,
         current_message=current_message,
         conversation_history=conversation_history or "Primeira mensagem da conversa"
-    ) 
+    )

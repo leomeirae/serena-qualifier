@@ -74,4 +74,4 @@ def get_conversation_prompt(
         intent=intent,
         conversation_history=conversation_history or "Primeira interação",
         lead_data=lead_data or "Nenhum dado coletado ainda"
-    ) 
+    )

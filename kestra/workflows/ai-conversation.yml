@@ -262,6 +262,9 @@ tasks:
           # RESPOSTA VIA LANGCHAIN
           response_result = agent.process_conversation(phone, enhanced_message, "respond")
           
+          # DEBUG: Investigar estrutura completa da resposta da IA
+          print(f"DEBUG: Estrutura completa da resposta da IA: {json.dumps(response_result, indent=2)}")
+          
           ai_response = response_result.get("response", "Problema técnico")
           method_used = response_result.get("method", "unknown")
           
@@ -303,6 +306,7 @@ tasks:
       from dotenv import load_dotenv
       load_dotenv('/app/.env')
       
+      import os
       import json
       import requests
       import time
@@ -319,9 +323,13 @@ tasks:
       print(f"🏗️ Arquitetura: Dois Workflows + Timeout")
       
       try:
+          # Garantir que o telefone tenha o prefixo +
+          formatted_phone = phone if phone.startswith('+') else f'+{phone}'
+          print(f"📞 Telefone formatado: {formatted_phone}")
+          
           # Enviar mensagem
           whatsapp_url = os.getenv("WHATSAPP_API_URL", "http://whatsapp-service:8000/whatsapp/send_text_message")
-          payload = {"phone": phone, "message": ai_response}
+          payload = {"phone": formatted_phone, "message": ai_response}
           
           response = requests.post(whatsapp_url, json=payload, timeout=30)
           response.raise_for_status()
@@ -365,169 +373,12 @@ tasks:
       
       print('::' + json.dumps({"outputs": {"first_message_result": first_message_result}}) + '::')
 
-  # TASK 5: WaitForWebhook com Timeout de 2 Horas
-  - id: wait-for-response
-    type: io.kestra.plugin.core.flow.WaitForWebhook
-    description: "Aguarda resposta do lead por 2 horas - se não responder, aciona lembrete"
-    key: "{{ outputs['send-first-message'].vars.first_message_result.conversation_id }}"
-    timeout: "PT2H"  # ISO 8601: 2 horas
-    onTimeout:
-      - id: send-reminder-message
-        type: io.kestra.plugin.scripts.python.Script
-        description: "Envia mensagem de lembrete quando timeout é atingido"
-        taskRunner:
-          type: io.kestra.plugin.scripts.runner.docker.Docker
-          image: "serena-runner:latest"
-          pullPolicy: "NEVER"
-          networkMode: "serena-qualifier_kestra-network"
-          fileHandlingStrategy: VOLUME
-        env:
-          WHATSAPP_API_URL: "http://whatsapp-service:8000/whatsapp/send_text_message"
-          FIRST_MESSAGE_RESULT: "{{ outputs['send-first-message'].vars.first_message_result | json }}"
-        script: |
-          from dotenv import load_dotenv
-          load_dotenv('/app/.env')
-          
-          import json
-          import requests
-          import time
-          import os
-          
-          first_msg_result = json.loads(os.getenv("FIRST_MESSAGE_RESULT", "{}"))
-          phone = first_msg_result.get("phone")
-          conversation_id = first_msg_result.get("conversation_id")
-          
-          print(f"⏰ TIMEOUT ATINGIDO - Enviando lembrete para {phone}")
-          print(f"🔗 Conversation ID: {conversation_id}")
-          print(f"⏱️  Timeout: 2 horas sem resposta")
-          
-          # Mensagem de lembrete personalizada
-          reminder_message = "Oi! 😊\n\nNotei que você não respondeu nossa conversa anterior sobre energia solar.\n\nAinda tem interesse em economizar na conta de luz? Posso te ajudar a encontrar o melhor plano para sua região! ⚡\n\nÉ só me responder que continuamos de onde paramos! 👍"
-          
-          try:
-              # Enviar lembrete
-              whatsapp_url = os.getenv("WHATSAPP_API_URL", "http://whatsapp-service:8000/whatsapp/send_text_message")
-              payload = {"phone": phone, "message": reminder_message}
-              
-              response = requests.post(whatsapp_url, json=payload, timeout=30)
-              response.raise_for_status()
-              
-              result = response.json()
-              reminder_message_id = result.get("message_id", "")
-              
-              print(f"✅ Lembrete enviado! ID: {reminder_message_id}")
-              
-              # Analytics do lembrete
-              reminder_analytics = {
-                  "reminder_sent": True,
-                  "reminder_message_id": reminder_message_id,
-                  "timeout_duration": "PT2H",
-                  "conversation_id": conversation_id,
-                  "timestamp": time.time(),
-                  "workflow_version": "v6_two_workflows",
-                  "architecture": "timeout_reminder"
-              }
-              
-              reminder_result = {
-                  "success": True,
-                  "reminder_message_id": reminder_message_id,
-                  "conversation_id": conversation_id,
-                  "phone": phone,
-                  "analytics": reminder_analytics
-              }
-              
-          except Exception as e:
-              print(f"❌ Erro ao enviar lembrete: {str(e)}")
-              reminder_result = {
-                  "success": False,
-                  "error": str(e),
-                  "conversation_id": conversation_id,
-                  "phone": phone
-              }
-          
-          print('::' + json.dumps({"outputs": {"reminder_result": reminder_result}}) + '::')
-
-  # TASK 6: Processar Resposta do Lead (quando responde antes do timeout)
-  - id: process-lead-response
-    type: io.kestra.plugin.scripts.python.Script
-    runIf: "{{ outputs['wait-for-response'].vars.webhook_data is defined }}"
-    description: "Processa resposta do lead quando ele responde antes do timeout"
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: "serena-runner:latest"
-      pullPolicy: "NEVER"
-      networkMode: "serena-qualifier_kestra-network"
-      fileHandlingStrategy: VOLUME
-    env:
-      WEBHOOK_DATA: "{{ outputs['wait-for-response'].vars.webhook_data | json }}"
-      FIRST_MESSAGE_RESULT: "{{ outputs['send-first-message'].vars.first_message_result | json }}"
-    script: |
-      from dotenv import load_dotenv
-      load_dotenv('/app/.env')
-      
-      from scripts.serena_agent.core_agent import SerenaAIAgent
-      import json
-      import requests
-      import time
-      import os
-      
-      webhook_data = json.loads(os.getenv("WEBHOOK_DATA", "{}"))
-      first_msg_result = json.loads(os.getenv("FIRST_MESSAGE_RESULT", "{}"))
-      
-      phone = webhook_data.get("lead_phone", first_msg_result.get("phone"))
-      lead_message = webhook_data.get("lead_message", "")
-      conversation_id = first_msg_result.get("conversation_id")
-      
-      print(f"💬 RESPOSTA RECEBIDA - Lead {phone}")
-      print(f"🔗 Conversation ID: {conversation_id}")
-      print(f"📝 Mensagem: '{lead_message}'")
-      print(f"⏱️  Respondeu antes do timeout!")
-      
-      try:
-          # Processar resposta com IA
-          agent = SerenaAIAgent()
-          response_result = agent.process_conversation(phone, lead_message, "respond")
-          
-          ai_response = response_result.get("response", "Obrigado pela resposta!")
-          
-          # Enviar resposta
-          whatsapp_url = os.getenv("WHATSAPP_API_URL", "http://whatsapp-service:8000/whatsapp/send_text_message")
-          payload = {"phone": phone, "message": ai_response}
-          
-          response = requests.post(whatsapp_url, json=payload, timeout=30)
-          response.raise_for_status()
-          
-          result = response.json()
-          response_message_id = result.get("message_id", "")
-          
-          print(f"✅ Resposta enviada! ID: {response_message_id}")
-          
-          # Analytics da resposta
-          response_analytics = {
-              "lead_responded": True,
-              "timeout_avoided": True,
-              "response_message_id": response_message_id,
-              "conversation_id": conversation_id,
-              "timestamp": time.time(),
-              "workflow_version": "v6_two_workflows"
-          }
-          
-          lead_response_result = {
-              "success": True,
-              "response_message_id": response_message_id,
-              "conversation_id": conversation_id,
-              "phone": phone,
-              "timeout_avoided": True,
-              "analytics": response_analytics
-          }
-          
-      except Exception as e:
-          print(f"❌ Erro ao processar resposta: {str(e)}")
-          lead_response_result = {
-              "success": False,
-              "error": str(e),
-              "conversation_id": conversation_id,
-              "phone": phone
-          }
-      
-      print('::' + json.dumps({"outputs": {"lead_response_result": lead_response_result}}) + '::')
+# WORKFLOW FINALIZADO - Primeira mensagem enviada
+# 
+# Para implementar timeout/lembrete, criar um workflow separado que:
+# 1. Seja agendado para executar 2 horas após este workflow
+# 2. Verifique se o lead respondeu no Supabase
+# 3. Se não respondeu, envie o lembrete
+# 
+# Para processar respostas do lead, usar o mesmo webhook ai_conversation_webhook
+# que acionará este workflow novamente com a nova mensagem

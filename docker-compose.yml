@@ -40,77 +40,46 @@ services:
       retries: 5
 
   kestra:
-    image: kestra/kestra:latest
+    image: kestra/kestra:latest-full
     container_name: kestra
     command: ["server", "local"]
     user: root
     ports:
       - "8080:8080"
     volumes:
-      # Mapeia o caminho REAL do Docker socket no macOS para o caminho esperado no contêiner
-      - /Users/user/.docker/run/docker.sock:/var/run/docker.sock
-      # Workflows locais (opcional)
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./kestra/workflows:/app/workflows:ro
-      # Montar arquivo .env para acessar credenciais
-      - ./.env:/app/.env:ro
+      - ./.env:/app/.env:ro  # <-- ESTA LINHA É A CORREÇÃO CRÍTICA
     environment:
-      # Define o tipo de banco de dados e fila
-      KESTRA_REPOSITORY_TYPE: postgres
-      KESTRA_QUEUE_TYPE: postgres
-
-      # Fornece as credenciais para o banco de dados "default"
-      KESTRA_DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/kestra
-      KESTRA_DATASOURCES_DEFAULT_USERNAME: kestra
-      KESTRA_DATASOURCES_DEFAULT_PASSWORD: kestra123
-      
-      # JVM Settings otimizados (menor uso de memória)
+      KESTRA_CONFIGURATION: |
+        kestra:
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          secrets:
+            env:
+              enabled: true
+              path: /app/.env # <-- DIZ AO KESTRA PARA LER O ARQUIVO MONTADO
+          datasources:
+            default:
+              url: jdbc:postgresql://postgres:5432/kestra
+              username: kestra
+              password: kestra123
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=50.0 -Xms512m -Xmx2g"
-      
-      # Timezone
       TZ: America/Recife
-      
-      # Repositório de plugins central
-      KESTRA_PLUGINS_REPOSITORIES_CENTRAL_URL: https://repo1.maven.org/maven2/
-      
-      # APENAS plugins essenciais para nosso projeto
       KESTRA_PLUGINS_CONFIGURATIONS_0_TYPE: io.kestra.plugin:plugin-docker:LATEST
-      KESTRA_PLUGINS_CONFIGURATIONS_1_TYPE: io.kestra.plugin:plugin-script-python:LATEST
+      KESTRA_PLUGINS_CONFIGURATIONS_1_TYPE: io.kestra.plugin:plugin-script:LATEST
       KESTRA_PLUGINS_CONFIGURATIONS_2_TYPE: io.kestra.plugin:plugin-fs:LATEST
-      
-      # Configurações para acelerar inicialização
-      KESTRA_PLUGINS_INSTALL_ON_START: "true"
-      KESTRA_PLUGINS_INSTALL_CONCURRENCY: "2"
-      
-      # Configuração de secrets usando variáveis de ambiente
-      KESTRA_SECRET_TYPE: env
-      KESTRA_SECRET_ENV_PREFIX: ""
-      KESTRA_SECRET_ENV_KEYS: "WHATSAPP_API_TOKEN,WHATSAPP_PHONE_NUMBER_ID,WHATSAPP_BUSINESS_ID,WHATSAPP_WELCOME_TEMPLATE_NAME,OPENAI_API_KEY,SUPABASE_URL,SUPABASE_KEY,SUPABASE_ANON_KEY,SERENA_API_TOKEN,SERENA_API_BASE_URL"
-      
-      # Variáveis de ambiente do projeto (secrets)
-      WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN}
-      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID}
-      WHATSAPP_BUSINESS_ID: ${WHATSAPP_BUSINESS_ID}
-      WHATSAPP_WELCOME_TEMPLATE_NAME: ${WHATSAPP_WELCOME_TEMPLATE_NAME}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SERENA_API_TOKEN: ${SERENA_API_TOKEN}
-      SERENA_API_BASE_URL: ${SERENA_API_BASE_URL}
-    
+      KESTRA_PLUGINS_CONFIGURATIONS_3_TYPE: io.kestra.plugin:plugin-core:LATEST
     networks:
       - kestra-network
-    
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    
     restart: always
-    
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/flows"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 5

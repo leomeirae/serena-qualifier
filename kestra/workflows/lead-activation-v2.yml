@@ -1,4 +1,4 @@
-id: lead-activation
+id: lead-activation-v2
 namespace: serena.energia
 description: "Fluxo 1: Ativação do Lead - Captura dados do formulário e envia primeira mensagem de boas-vindas"
 
@@ -17,10 +17,8 @@ tasks:
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
     script: |
-      # Carrega as variáveis de ambiente do arquivo .env montado
+      set -e
       export $(grep -v '^#' /app/.env | xargs)
-      
-      # Chama o script Python dedicado, passando os dados REAIS do formulário
       python /app/scripts/save_lead_to_supabase.py \
         --name "{{ trigger.body.nomeCompleto }}" \
         --phone "{{ trigger.body.whatsapp }}" \
@@ -37,11 +35,8 @@ tasks:
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
     script: |
-      # Carrega as variáveis de ambiente do arquivo .env montado
+      set -e
       export $(grep -v '^#' /app/.env | xargs)
-      
-      # Chama o script Python com argumentos posicionais usando dados do trigger diretamente
       python /app/scripts/whatsapp_real_sender.py \
         "{{ trigger.body.whatsapp }}" \
-        "{{ trigger.body.nomeCompleto }}"
-
+        "{{ trigger.body.nomeCompleto }}" 
