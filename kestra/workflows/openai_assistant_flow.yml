@@ -1,0 +1,219 @@
+id: openai-assistant-flow-v2
+namespace: serena.energia
+description: "Orquestra a conversação com o lead usando a API de Assistentes da OpenAI (v2 - Refatorado e Otimizado)"
+
+triggers:
+  - id: conversation-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: ai_conversation_webhook
+
+variables:
+  # Centraliza configurações importantes
+  assistant_id: "{{ env.OPENAI_ASSISTANT_ID }}"
+  max_polling_attempts: 20
+  polling_interval: "PT3S"
+  function_polling_attempts: 15
+
+tasks:
+  # Tarefa 1: Obter a Thread do usuário
+  - id: get-thread
+    type: io.kestra.plugin.scripts.bash.Script
+    description: "Obtém ou cria Thread OpenAI para o phone_number"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    script: |
+      export $(grep -v '^#' /app/.env | xargs)
+      python /app/scripts/thread_manager.py --phone "{{ trigger.body.phone }}"
+
+  # Tarefa 2: Adicionar a mensagem do usuário à Thread
+  - id: add-message
+    type: io.kestra.plugin.scripts.bash.Script
+    description: "Adiciona mensagem do usuário à Thread"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    script: |
+      export $(grep -v '^#' /app/.env | xargs)
+      python /app/scripts/openai_handler.py \
+        --action add_message \
+        --thread-id "{{ outputs['get-thread'].vars.thread_id }}" \
+        --content "{{ trigger.body.message }}"
+
+  # Tarefa 3: Criar a Run do assistente
+  - id: create-run
+    type: io.kestra.plugin.scripts.bash.Script
+    description: "Cria Run do Assistant OpenAI"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    script: |
+      export $(grep -v '^#' /app/.env | xargs)
+      python /app/scripts/openai_handler.py \
+        --action create_run \
+        --thread-id "{{ outputs['get-thread'].vars.thread_id }}" \
+        --assistant-id "{{ vars.assistant_id }}"
+
+  # Tarefa 4: Aguardar a conclusão da Run usando Polling nativo
+  - id: wait-for-run
+    type: io.kestra.plugin.core.flow.Polling
+    description: "Aguarda conclusão da Run com polling nativo"
+    interval: "{{ vars.polling_interval }}"
+    retry:
+      maxAttempt: "{{ vars.max_polling_attempts }}"
+      maxDuration: "PT5M"
+      backoff:
+        delay: "PT2S"
+        multiplier: 1.5
+    condition: "{{ taskrun.attemptsCount > 1 and outputs['check-status'].vars.status in ['completed', 'requires_action', 'failed', 'cancelled', 'expired'] }}"
+    task:
+      id: check-status
+      type: io.kestra.plugin.scripts.bash.Script
+      description: "Verifica status da Run"
+      taskRunner:
+        type: io.kestra.plugin.scripts.runner.docker.Docker
+        image: serena/kestra-python-runner:latest
+        pullPolicy: NEVER
+        networkMode: serena-qualifier_kestra-network
+      script: |
+        export $(grep -v '^#' /app/.env | xargs)
+        python /app/scripts/openai_handler.py \
+          --action check_run \
+          --thread-id "{{ outputs['get-thread'].vars.thread_id }}" \
+          --run-id "{{ outputs['create-run'].vars.run_id }}"
+
+  # Tarefa 5: Lidar com o resultado (Function Calling ou resposta final)
+  - id: handle-result
+    type: io.kestra.plugin.core.flow.Switch
+    description: "Processa resultado baseado no status da Run"
+    value: "{{ outputs['wait-for-run'].value.status }}"
+    cases:
+      requires_action:
+        - id: process-function-calls
+          type: io.kestra.plugin.core.flow.Sequential
+          description: "Processa function calls e aguarda conclusão"
+          tasks:
+            - id: execute-functions
+              type: io.kestra.plugin.scripts.bash.Script
+              description: "Executa function calls quando necessário"
+              taskRunner:
+                type: io.kestra.plugin.scripts.runner.docker.Docker
+                image: serena/kestra-python-runner:latest
+                pullPolicy: NEVER
+                networkMode: serena-qualifier_kestra-network
+              script: |
+                export $(grep -v '^#' /app/.env | xargs)
+                python /app/scripts/assistant_function_handler.py \
+                  --thread-id "{{ outputs['get-thread'].vars.thread_id }}" \
+                  --run-id "{{ outputs['create-run'].vars.run_id }}"
+            
+            - id: wait-after-functions
+              type: io.kestra.plugin.core.flow.Polling
+              description: "Aguarda conclusão após executar functions"
+              interval: "{{ vars.polling_interval }}"
+              retry:
+                maxAttempt: "{{ vars.function_polling_attempts }}"
+                maxDuration: "PT3M"
+                backoff:
+                  delay: "PT2S"
+                  multiplier: 1.5
+              condition: "{{ taskrun.attemptsCount > 1 and outputs['check-final-status'].vars.status in ['completed', 'failed', 'cancelled', 'expired'] }}"
+              task:
+                id: check-final-status
+                type: io.kestra.plugin.scripts.bash.Script
+                description: "Verifica status final após functions"
+                taskRunner:
+                  type: io.kestra.plugin.scripts.runner.docker.Docker
+                  image: serena/kestra-python-runner:latest
+                  pullPolicy: NEVER
+                  networkMode: serena-qualifier_kestra-network
+                script: |
+                  export $(grep -v '^#' /app/.env | xargs)
+                  python /app/scripts/openai_handler.py \
+                    --action check_run \
+                    --thread-id "{{ outputs['get-thread'].vars.thread_id }}" \
+                    --run-id "{{ outputs['create-run'].vars.run_id }}"
+
+      completed:
+        - id: process-completed
+          type: io.kestra.plugin.core.flow.Sequential
+          description: "Processa run completada diretamente"
+          tasks:
+            - id: log-direct-completion
+              type: io.kestra.plugin.core.log.Log
+              message: "Run completada diretamente sem function calls"
+
+      failed:
+        - id: handle-error
+          type: io.kestra.plugin.core.log.Log
+          message: "Run falhou: {{ outputs['wait-for-run'].value.status }}"
+          level: ERROR
+
+  # Tarefa 6: Obter resposta final (unificada para ambos os caminhos)
+  - id: get-final-response
+    type: io.kestra.plugin.scripts.bash.Script
+    description: "Obtém resposta final do Assistant (unificada)"
+    condition: "{{ outputs['handle-result'].switchValue in ['completed', 'requires_action'] }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    script: |
+      export $(grep -v '^#' /app/.env | xargs)
+      python /app/scripts/openai_handler.py \
+        --action get_response \
+        --thread-id "{{ outputs['get-thread'].vars.thread_id }}"
+
+  # Tarefa 7: Enviar resposta via WhatsApp
+  - id: send-whatsapp-response
+    type: io.kestra.plugin.scripts.bash.Script
+    description: "Envia resposta final via WhatsApp"
+    condition: "{{ outputs['get-final-response'].vars.status == 'success' }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    script: |
+      export $(grep -v '^#' /app/.env | xargs)      
+      python /app/scripts/whatsapp_real_sender.py \
+        "{{ trigger.body.phone }}" \
+        "{{ outputs['get-final-response'].vars.final_response }}"
+
+  # Tarefa 8: Log da conversa completa
+  - id: log-conversation
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      CONVERSA PROCESSADA (v2 - Otimizada):
+      =====================================
+      Phone: {{ trigger.body.phone }}
+      Message: {{ trigger.body.message }}
+      Thread ID: {{ outputs['get-thread'].vars.thread_id }}
+      Processing Path: {{ outputs['handle-result'].switchValue }}
+      Final Status: {{ outputs['wait-for-run'].value.status }}
+      Response Sent: {{ outputs['get-final-response'].vars.status == 'success' }}
+      =====================================
+
+outputs:
+  - id: conversation_result
+    type: STRING
+    value: "{{ outputs['get-final-response'].vars.final_response | default('Processamento incompleto') }}"
+  - id: thread_id
+    type: STRING
+    value: "{{ outputs['get-thread'].vars.thread_id }}"
+  - id: run_status
+    type: STRING
+    value: "{{ outputs['wait-for-run'].value.status }}"
+  - id: processing_path
+    type: STRING
+    value: "{{ outputs['handle-result'].switchValue }}"
+  - id: success
+    type: BOOLEAN
+    value: "{{ outputs['get-final-response'].vars.status == 'success' }}"

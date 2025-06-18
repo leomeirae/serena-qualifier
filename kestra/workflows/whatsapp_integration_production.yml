@@ -1,0 +1,262 @@
+id: whatsapp-integration-production
+namespace: serena.energia
+description: "Workflow de Produção - Integração WhatsApp que aciona OpenAI Assistant"
+
+labels:
+  version: "1.0.0"
+  environment: "production"
+  system: "serena-qualifier"
+  integration: "whatsapp"
+  architecture: "webhook_to_assistant"
+
+# Trigger para receber webhooks do WhatsApp
+triggers:
+  - id: whatsapp-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "whatsapp_webhook"
+
+inputs:
+  - id: phone_number
+    type: STRING
+    required: false
+  - id: message
+    type: STRING
+    required: false
+  - id: message_type
+    type: STRING
+    required: false
+    defaults: "text"
+  - id: message_id
+    type: STRING
+    required: false
+  - id: media_id
+    type: STRING
+    required: false
+  - id: timestamp
+    type: STRING
+    required: false
+
+variables:
+  webhook_data: "{{ trigger.body }}"
+  extracted_phone: "{{ inputs.phone_number | default(trigger.body.phone_number | default(trigger.body.from | default(''))) }}"
+  extracted_message: "{{ inputs.message | default(trigger.body.message | default(trigger.body.text | default(''))) }}"
+  extracted_type: "{{ inputs.message_type | default(trigger.body.message_type | default(trigger.body.type | default('text'))) }}"
+
+tasks:
+  # TASK 1: Validar e Processar Webhook
+  - id: validate-webhook
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Validar dados do webhook do WhatsApp"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      WEBHOOK_DATA: "{{ vars.webhook_data | json }}"
+      PHONE: "{{ vars.extracted_phone }}"
+      MESSAGE: "{{ vars.extracted_message }}"
+      MSG_TYPE: "{{ vars.extracted_type }}"
+    script: |
+      import os
+      import json
+      
+      webhook_data = os.getenv("WEBHOOK_DATA")
+      phone = os.getenv("PHONE")
+      message = os.getenv("MESSAGE")
+      msg_type = os.getenv("MSG_TYPE")
+      
+      print("📱 WHATSAPP WEBHOOK VALIDATION")
+      print(f"📞 Phone: {phone}")
+      print(f"💬 Message: {message}")
+      print(f"📎 Type: {msg_type}")
+      print(f"📊 Webhook Data: {webhook_data}")
+      
+      # Validações básicas
+      is_valid = bool(phone and message)
+      
+      if is_valid:
+          print("✅ Webhook válido - processando...")
+          
+          # Limpar número de telefone
+          clean_phone = phone.replace("+", "").replace("-", "").replace(" ", "")
+          if not clean_phone.startswith("55"):
+              clean_phone = "55" + clean_phone
+          
+          result = {
+              "valid": True,
+              "phone": clean_phone,
+              "message": message,
+              "message_type": msg_type,
+              "timestamp": json.loads(webhook_data).get("timestamp", "")
+          }
+      else:
+          print("❌ Webhook inválido - dados insuficientes")
+          result = {
+              "valid": False,
+              "error": "Phone or message missing"
+          }
+      
+      print('::' + json.dumps({"outputs": result}) + '::')
+
+  # TASK 2: Filtrar Mensagens de Sistema
+  - id: filter-system-messages
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Filtrar mensagens de sistema e spam"
+    runIf: "{{ outputs['validate-webhook'].vars.valid == true }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      MESSAGE: "{{ outputs['validate-webhook'].vars.message }}"
+      MSG_TYPE: "{{ outputs['validate-webhook'].vars.message_type }}"
+    script: |
+      import os
+      import json
+      import re
+      
+      message = os.getenv("MESSAGE")
+      msg_type = os.getenv("MSG_TYPE")
+      
+      print(f"🔍 FILTER: Analisando mensagem")
+      print(f"💬 Conteúdo: {message}")
+      print(f"📎 Tipo: {msg_type}")
+      
+      # Filtros de sistema
+      system_patterns = [
+          r"^(Esta mensagem foi apagada|This message was deleted)",
+          r"^(Mensagem encaminhada|Forwarded message)",
+          r"^(Chamada perdida|Missed call)",
+          r"^(Ligação de voz|Voice call)",
+          r"^(Mensagem de áudio|Audio message)",
+          r"^\s*$"  # Mensagens vazias
+      ]
+      
+      is_system = False
+      for pattern in system_patterns:
+          if re.search(pattern, message, re.IGNORECASE):
+              is_system = True
+              break
+      
+      # Filtros de spam
+      spam_keywords = ["promoção", "desconto", "oferta", "grátis", "ganhe", "clique"]
+      is_spam = any(keyword in message.lower() for keyword in spam_keywords)
+      
+      should_process = not (is_system or is_spam)
+      
+      if should_process:
+          print("✅ Mensagem válida para processamento")
+      else:
+          print("❌ Mensagem filtrada (sistema/spam)")
+      
+      result = {
+          "should_process": should_process,
+          "is_system": is_system,
+          "is_spam": is_spam,
+          "message": message
+      }
+      
+      print('::' + json.dumps({"outputs": result}) + '::')
+
+  # TASK 3: Chamar Workflow OpenAI Assistant
+  - id: call-openai-assistant
+    type: io.kestra.plugin.core.http.Request
+    description: "Acionar workflow OpenAI Assistant via webhook"
+    runIf: "{{ outputs['filter-system-messages'].vars.should_process == true }}"
+    uri: "http://kestra:8080/api/v1/executions/webhook/serena.energia/openai-assistant-production/openai_assistant_webhook"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    body: |
+      {
+        "lead_phone": "{{ outputs['validate-webhook'].vars.phone }}",
+        "lead_message": "{{ outputs['validate-webhook'].vars.message }}",
+        "message_type": "{{ outputs['validate-webhook'].vars.message_type }}",
+        "message_id": "{{ inputs.message_id | default(trigger.body.message_id | default('')) }}",
+        "media_id": "{{ inputs.media_id | default(trigger.body.media_id | default('')) }}",
+        "conversation_id": "{{ inputs.conversation_id | default(trigger.body.conversation_id | default('')) }}"
+      }
+
+  # TASK 4: Log da Integração
+  - id: log-integration
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Log da integração WhatsApp -> OpenAI Assistant"
+    runIf: "{{ outputs['validate-webhook'].vars.valid == true }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: "serena-runner:latest"
+      pullPolicy: "NEVER"
+      networkMode: "serena-qualifier_kestra-network"
+      fileHandlingStrategy: VOLUME
+    env:
+      PHONE: "{{ outputs['validate-webhook'].vars.phone }}"
+      MESSAGE: "{{ outputs['validate-webhook'].vars.message }}"
+      PROCESSED: "{{ outputs['filter-system-messages'].vars.should_process | default(false) }}"
+      ASSISTANT_RESPONSE: "{{ outputs['call-openai-assistant'].body | default('{}') }}"
+    script: |
+      from dotenv import load_dotenv
+      load_dotenv('/app/.env')
+      
+      import os
+      import json
+      from datetime import datetime
+      from supabase import create_client, Client
+      
+      phone = os.getenv("PHONE")
+      message = os.getenv("MESSAGE")
+      processed = os.getenv("PROCESSED") == "true"
+      assistant_response = os.getenv("ASSISTANT_RESPONSE")
+      
+      print("📊 INTEGRATION LOG")
+      print(f"📞 Phone: {phone}")
+      print(f"💬 Message: {message[:100]}...")
+      print(f"✅ Processed: {processed}")
+      
+      try:
+          # Conectar ao Supabase
+          supabase_url = os.getenv('SUPABASE_URL')
+          supabase_key = os.getenv('SUPABASE_ANON_KEY')
+          supabase = create_client(supabase_url, supabase_key)
+          
+          # Registrar log
+          log_data = {
+              'phone_number': phone,
+              'message_content': message,
+              'message_type': 'whatsapp_inbound',
+              'processed': processed,
+              'assistant_response': assistant_response,
+              'timestamp': datetime.now().isoformat(),
+              'source': 'whatsapp_integration_production'
+          }
+          
+          result = supabase.table('message_logs').insert(log_data).execute()
+          
+          print("✅ Log registrado no Supabase")
+          print('::' + json.dumps({"outputs": {"logged": True, "log_id": result.data[0]['id'] if result.data else None}}) + '::')
+          
+      except Exception as e:
+          print(f"❌ Erro ao registrar log: {str(e)}")
+          print('::' + json.dumps({"outputs": {"logged": False, "error": str(e)}}) + '::')
+
+outputs:
+  - id: integration_summary
+    type: JSON
+    value: |
+      {
+        "phone": "{{ outputs['validate-webhook'].vars.phone }}",
+        "message": "{{ outputs['validate-webhook'].vars.message }}",
+        "valid_webhook": {{ outputs['validate-webhook'].vars.valid | default(false) }},
+        "processed": {{ outputs['filter-system-messages'].vars.should_process | default(false) }},
+        "assistant_called": {{ (outputs['call-openai-assistant'].code == 200) | default(false) }},
+        "logged": {{ outputs['log-integration'].vars.logged | default(false) }},
+        "timestamp": "{{ now() }}",
+        "success": {{ (outputs['call-openai-assistant'].code == 200) | default(false) }}
+      }
+  
+  - id: success
+    type: BOOLEAN
+    value: "{{ outputs['call-openai-assistant'].code == 200 }}" 

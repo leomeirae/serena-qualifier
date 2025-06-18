@@ -1,42 +1,42 @@
-id: lead-activation-v2
+id: lead-activation-workflow
 namespace: serena.energia
-description: "Fluxo 1: Ativação do Lead - Captura dados do formulário e envia primeira mensagem de boas-vindas"
+description: "Fluxo 1 Definitivo: Ativação do Lead. Captura dados do formulário, salva no Supabase e envia a primeira mensagem de boas-vindas via API real."
 
 triggers:
   - id: capture-webhook
     type: io.kestra.plugin.core.trigger.Webhook
-    key: capture
+    key: serena-capture-webhook # Chave final e corrigida do webhook
 
 tasks:
   - id: save-initial-lead
-    type: io.kestra.plugin.scripts.shell.Script
-    description: "Executes an external Python script to save the initial lead data to Supabase."
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: "Salva os dados iniciais do lead no Supabase chamando um script externo e gera outputs para a próxima tarefa."
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
-    script: |
-      set -e
-      export $(grep -v '^#' /app/.env | xargs)
-      python /app/scripts/save_lead_to_supabase.py \
-        --name "{{ trigger.body.nomeCompleto }}" \
-        --phone "{{ trigger.body.whatsapp }}" \
-        --email "{{ trigger.body.email | default('email@simulado.com') }}" \
-        --account_value "{{ trigger.body.faixaConta | default('0') }}" \
-        --client_type "{{ trigger.body.tipoCliente | default('casa') }}"
+    commands:
+      - |
+        # Carrega variáveis de ambiente do arquivo .env
+        export $(grep -v '^#' /app/.env | xargs)
+        # Executa o script Python, passando os dados do gatilho como argumentos.
+        python /app/scripts/save_lead_to_supabase.py \
+          --name "{{ trigger.body.nomeCompleto }}" \
+          --phone "{{ trigger.body.whatsapp }}" \
+          --email "{{ trigger.body.email | default('email@simulado.com') }}"
 
   - id: send-activation-template
-    type: io.kestra.plugin.scripts.shell.Script
-    description: "Envia template de ativação via Whatsapp chamando um script externo"
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: "Envia o template de boas-vindas via WhatsApp usando os dados da tarefa anterior."
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
-    script: |
-      set -e
-      export $(grep -v '^#' /app/.env | xargs)
-      python /app/scripts/whatsapp_real_sender.py \
-        "{{ trigger.body.whatsapp }}" \
-        "{{ trigger.body.nomeCompleto }}" 
+    commands:
+      - |
+        export $(grep -v '^#' /app/.env | xargs)
+        python /app/scripts/whatsapp_real_sender.py \
+          "{{ outputs['save-initial-lead'].vars.lead_phone }}" \
+          "{{ outputs['save-initial-lead'].vars.lead_name }}"

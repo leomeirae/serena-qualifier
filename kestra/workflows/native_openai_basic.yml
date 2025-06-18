@@ -1,0 +1,34 @@
+id: native-openai-basic
+namespace: serena.energia
+description: "Teste básico do plugin nativo OpenAI do Kestra - CORRIGIDO"
+
+triggers:
+  - id: conversation-webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: ai_conversation_webhook_basic
+
+tasks:
+  # Task 1: Gerar resposta da IA usando plugin nativo OpenAI (SEGURO - variável de ambiente)
+  - id: generate-ai-response
+    type: io.kestra.plugin.openai.ChatCompletion
+    apiKey: "{{ env.OPENAI_API_KEY }}"
+    model: "gpt-4o"
+    maxTokens: 500
+    prompt: >
+      Você é um Especialista em Vendas da Serena Energia, empresa líder em energia solar no Brasil.
+      Seu objetivo é qualificar leads interessados em energia solar.
+      Seja profissional, consultivo e orientado a resultados.
+      
+      Responda de forma direta e clara sobre energia solar e os serviços da Serena.
+      
+      Pergunta do cliente: {{ trigger.body.message }}
+
+  # Task 2: Log da resposta (corrigido)
+  - id: log-response
+    type: io.kestra.plugin.core.log.Log
+    message: "IA respondeu: {{ outputs['generate-ai-response'].choices | jq('.[].message.content') | first }}"
+
+outputs:
+  - id: final_response
+    type: STRING
+    value: "{{ outputs['generate-ai-response'].choices | jq('.[].message.content') | first }}" 

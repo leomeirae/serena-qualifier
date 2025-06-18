@@ -127,47 +127,63 @@ Versão Gráfica:
 1. **save-initial-lead (Python)**: Salva os dados do lead no Supabase.  
 2. **send-activation-template (Bash)**: Envia o template "Ativar Perfil\!" via curl para o serviço whatsapp\_sender.py.
 
-## **4\. Fluxo 2: ai-conversation.yml (Conversa com IA + Timeout)**
+## **4\. Fluxo 2: openai-assistant-flow.yml (Conversa com IA - Arquitetura OpenAI Assistants)**
 
-* **Arquivo Oficial**: /Users/user/Desktop/serena-qualifier/kestra/workflows/ai-conversation.yml (v6.0.0).
-* **Funcionalidade**: Conversação IA + Lembrete automático por timeout (2 horas).
+* **Arquivo Oficial**: /Users/user/Desktop/serena-qualifier/kestra/workflows/openai-assistant-flow.yml.
+* **Funcionalidade**: Conversação IA utilizando OpenAI Assistants API + Lembrete automático por timeout (2 horas).
+
+### **Arquitetura OpenAI Assistants**
+
+Este fluxo é acionado pela resposta do lead e orquestrado pelo Kestra. Ele utiliza o OpenAI Python SDK para interagir com um Assistente pré-configurado. 
+
+Os principais componentes são:
+
+* **scripts/assistant_manager.py**: Cria e gerencia a identidade do Assistente.
+* **scripts/thread_manager.py**: Gerencia os fios de conversa (Threads) para cada usuário.
+* **scripts/assistant_function_handler.py**: Atua como uma ponte para executar ferramentas customizadas.
+* **kestra/workflows/openai_assistant_flow.yml**: O novo workflow orquestrador.
 
 ### **Gatilho (Trigger)**
 
-* **Tipo**: io.kestra.core.tasks.flows.Webhook  
-* **URI**: /continue  
+* **Tipo**: io.kestra.plugin.core.trigger.Webhook  
+* **Key**: ai_conversation_webhook  
 * **Origem**: Serviço scripts/whatsapp\_sender.py.
 
 **Request Body (JSON):**
 
 {  
-  "phone\_number": "+5511987654321",  
-  "message\_text": "Ativar Perfil\!",  
-  "message\_type": "text",  
-  "media\_url": null,  
+  "phone": "+5511987654321",  
+  "message": "Ativar Perfil!",  
+  "media_url": null,  
   "timestamp": "1678886400"  
 }
 
 **Response (Success):**
 
 * **Status Code**: 202 Accepted  
-* **Body**: {"message": "Conversation continuation accepted"}
+* **Body**: {"message": "OpenAI Assistant conversation accepted"}
 
 ### **Tarefas (Tasks)**
 
-1. **intelligent-analysis (Python)**: Análise inteligente usando SerenaAIAgent com LangChain.
-2. **smart-ocr-processing (Python)**: Processamento OCR condicional para faturas.
-3. **langchain-response (Python)**: Geração de resposta via LangChain/OpenAI.
-4. **send-first-message (Python)**: Envio da primeira mensagem da IA.
-5. **wait-for-response (WaitForWebhook)**: ⏰ **NOVO** - Aguarda resposta por 2 horas com timeout.
+1. **get-assistant-id (Bash)**: Obtém ou cria o ID do OpenAI Assistant.
+2. **get-thread-id (Python)**: Obtém ou cria Thread associada ao phone_number.
+3. **add-message-to-thread (Python)**: Adiciona mensagem do usuário à Thread.
+4. **create-and-run-assistant (Python)**: Cria Run e executa o Assistant.
+5. **wait-for-run-completion (Polling)**: Aguarda conclusão da Run com polling.
+6. **handle-run-output (Python)**: Processa resultado e envia resposta ao usuário.
+7. **wait-for-response (WaitForWebhook)**: ⏰ Aguarda resposta por 2 horas com timeout.
    - **onTimeout**: `send-reminder-message` - Envia lembrete automático
    - **Key**: `conversation_id` dinâmico
    - **Timeout**: `PT2H` (ISO 8601 - 2 horas)
-6. **process-lead-response (Python)**: ⏰ **NOVO** - Processa resposta quando lead responde antes do timeout.
+8. **process-lead-response (Python)**: ⏰ Processa resposta quando lead responde antes do timeout.
 
-## **5\. Guia de Comportamento do Agente de IA (SerenaAIAgent)**
+## **5\. Guia de Comportamento do Agente de IA (OpenAI Assistant)**
 
-O SerenaAIAgent é o cérebro do sistema (scripts/serena\_agent/core\_agent.py).
+O OpenAI Assistant é o cérebro do sistema, gerenciado pelos novos componentes:
+
+* **scripts/assistant_manager.py**: Gerencia criação e configuração do Assistant
+* **scripts/thread_manager.py**: Gerencia threads de conversação por usuário
+* **scripts/assistant_function_handler.py**: Bridge para ferramentas customizadas
 
 ### **Ferramentas Disponíveis (tools)**
 
@@ -320,7 +336,8 @@ Este script exemplifica o fluxo ideal para guiar desenvolvimento e testes.
 | **WHATSAPP\_WELCOME\_TEMPLATE\_NAME** | whatsapp\_sender | Nome do template aprovado para mensagens de boas-vindas. | prosseguir\_com\_solicitacao |
 | **SUPABASE\_URL** | conversation\_tool | URL do projeto no Supabase. | https://\[id\].supabase.co |
 | **SUPABASE\_KEY** | conversation\_tool | Chave de API (public anon key) do Supabase. | eyJhbGci... |
-| **OPENAI\_API\_KEY** | core\_agent | Chave de API da OpenAI para o modelo de linguagem. | sk-proj-... |
+| **OPENAI\_API\_KEY** | assistant\_manager | Chave de API da OpenAI para o modelo de linguagem. | sk-proj-... |
+| **OPENAI\_ASSISTANT\_ID** | assistant\_manager | ID do Assistant OpenAI (criado manualmente). | asst-... |
 | **KESTRA\_API\_URL** | serena-landing-page | URL da instância Kestra para acionar webhooks. | http://localhost:8080 |
 
 ### **Especificações Técnicas da API WhatsApp v23.0**
