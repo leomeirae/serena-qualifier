@@ -1,7 +1,0 @@
-python-dotenv
-requests
-pydantic
-openai
-anthropic
-tenacity 
-supabase 
