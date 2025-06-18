@@ -127,55 +127,31 @@ Versão Gráfica:
 1. **save-initial-lead (Python)**: Salva os dados do lead no Supabase.  
 2. **send-activation-template (Bash)**: Envia o template "Ativar Perfil\!" via curl para o serviço whatsapp\_sender.py.
 
-## **4\. Fluxo 2: openai-assistant-flow.yml (Conversa com IA - Arquitetura OpenAI Assistants)**
+## **4\. Fluxo de Qualificação do Lead (v3) {#fluxo-qualificacao-v3}
 
-* **Arquivo Oficial**: /Users/user/Desktop/serena-qualifier/kestra/workflows/openai-assistant-flow.yml.
-* **Funcionalidade**: Conversação IA utilizando OpenAI Assistants API + Lembrete automático por timeout (2 horas).
+Este fluxo unificado descreve a jornada completa do lead, desde a captura até a qualificação final, orquestrado por Kestra e utilizando o modelo `gpt-4o-mini` para interação e análise de imagens.
 
-### **Arquitetura OpenAI Assistants**
+### Arquitetura Simplificada
 
-Este fluxo é acionado pela resposta do lead e orquestrado pelo Kestra. Ele utiliza o OpenAI Python SDK para interagir com um Assistente pré-configurado. 
+- **Orquestração**: Kestra
+- **Comunicação**: WhatsApp API
+- **Inteligência Artificial**: OpenAI `gpt-4o-mini` (para conversação e análise de imagem/vision)
+- **Persistência**: Supabase (os dados do lead são salvos **apenas ao final** da interação completa).
 
-Os principais componentes são:
+### Etapas do Fluxo
 
-* **scripts/assistant_manager.py**: Cria e gerencia a identidade do Assistente.
-* **scripts/thread_manager.py**: Gerencia os fios de conversa (Threads) para cada usuário.
-* **scripts/assistant_function_handler.py**: Atua como uma ponte para executar ferramentas customizadas.
-* **kestra/workflows/openai_assistant_flow.yml**: O novo workflow orquestrador.
-
-### **Gatilho (Trigger)**
-
-* **Tipo**: io.kestra.plugin.core.trigger.Webhook  
-* **Key**: ai_conversation_webhook  
-* **Origem**: Serviço scripts/whatsapp\_sender.py.
-
-**Request Body (JSON):**
-
-{  
-  "phone": "+5511987654321",  
-  "message": "Ativar Perfil!",  
-  "media_url": null,  
-  "timestamp": "1678886400"  
-}
-
-**Response (Success):**
-
-* **Status Code**: 202 Accepted  
-* **Body**: {"message": "OpenAI Assistant conversation accepted"}
-
-### **Tarefas (Tasks)**
-
-1. **get-assistant-id (Bash)**: Obtém ou cria o ID do OpenAI Assistant.
-2. **get-thread-id (Python)**: Obtém ou cria Thread associada ao phone_number.
-3. **add-message-to-thread (Python)**: Adiciona mensagem do usuário à Thread.
-4. **create-and-run-assistant (Python)**: Cria Run e executa o Assistant.
-5. **wait-for-run-completion (Polling)**: Aguarda conclusão da Run com polling.
-6. **handle-run-output (Python)**: Processa resultado e envia resposta ao usuário.
-7. **wait-for-response (WaitForWebhook)**: ⏰ Aguarda resposta por 2 horas com timeout.
-   - **onTimeout**: `send-reminder-message` - Envia lembrete automático
-   - **Key**: `conversation_id` dinâmico
-   - **Timeout**: `PT2H` (ISO 8601 - 2 horas)
-8. **process-lead-response (Python)**: ⏰ Processa resposta quando lead responde antes do timeout.
+1.  **Captura (Formulário)**: Um formulário na página de captura coleta `Nome`, `E-mail`, `WhatsApp` e `Valor da Conta`.
+2.  **Ativação (Kestra)**: Um workflow Kestra (`lead-activation-v3.yml`) é acionado, recebendo os dados do formulário. Ele envia um template de WhatsApp aprovado para o número do lead.
+3.  **Interesse do Lead**: O lead clica no botão do template, enviando a mensagem "Ativar Perfil" (ou similar).
+4.  **Início da Conversa com IA**: Um segundo workflow Kestra (`ai-conversation-v3.yml`) é acionado pela mensagem do lead. A IA (usando `gpt-4o-mini`) agradece e solicita a **cidade e estado** do lead.
+5.  **Consulta e Análise de Conta**:
+    - Com a localização, a IA consulta a API da Serena para obter as promoções.
+    - Em seguida, a IA solicita uma **imagem da conta de energia**.
+    - A IA utiliza sua capacidade de "vision" (`gpt-4o-mini`) para analisar a imagem, extrair e validar o valor da conta.
+6.  **Apresentação e Finalização**:
+    - A IA apresenta as promoções de forma enumerada.
+    - Após o lead escolher ou tirar dúvidas, a IA informa que um responsável entrará em contato, agradece e se despede.
+7.  **Persistência Final**: Ao final de toda a interação, um script é executado para salvar **todos os dados consolidados** do lead (dados do formulário, localização, thread da conversa, promoção de interesse, status de qualificação) em uma única tabela no Supabase.
 
 ## **5\. Guia de Comportamento do Agente de IA (OpenAI Assistant)**
 
