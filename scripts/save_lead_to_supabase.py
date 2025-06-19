@@ -210,6 +210,8 @@ def main():
     parser.add_argument('--email', required=False, help='email do formulário')
     parser.add_argument('--account_value', required=False, help='faixaConta do formulário')
     parser.add_argument('--client_type', required=False, help='tipoCliente do formulário')
+    parser.add_argument('--state', required=False, help='estado do formulário')
+    parser.add_argument('--city', required=False, help='cidade do formulário')
     
     args = parser.parse_args()
     
@@ -225,6 +227,8 @@ def main():
     print(f"📝 Nome: {args.name}")
     print(f"📱 WhatsApp: {args.phone}")
     print(f"📧 Email: {args.email}")
+    print(f"🏛️ Estado: {args.state}")
+    print(f"🏙️ Cidade: {args.city}")
     print(f"💰 Faixa Conta: {args.account_value}")
     print(f"🏠 Tipo Cliente: {args.client_type}")
     
@@ -237,8 +241,9 @@ def main():
             # CAMPOS DIRETOS DA TABELA
             'phone_number': args.phone,           # Campo obrigatório único
             'name': args.name,                    # nomeCompleto → name
-            'city': None,                         # Será perguntado DEPOIS na conversa
-            'invoice_amount': None,               # Será processado pelo OCR
+            'city': args.city,                    # cidade do formulário
+            'state': args.state,                  # estado do formulário
+            'invoice_amount': float(args.account_value) if args.account_value and args.account_value.isdigit() else None,  # Converter faixaConta para numérico
             'conversation_state': 'FORM_SUBMITTED',
             
             # DADOS DO FORMULÁRIO NO CAMPO JSON

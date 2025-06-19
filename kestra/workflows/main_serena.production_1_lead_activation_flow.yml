@@ -45,6 +45,8 @@ tasks:
           'name': '{{ trigger.body.name }}',
           'email': '{{ trigger.body.email }}',
           'whatsapp': '{{ trigger.body.whatsapp }}',
+          'estado': '{{ trigger.body.estado }}',
+          'cidade': '{{ trigger.body.cidade }}',
           'account_value': '{{ trigger.body.account_value }}'
       }
       
@@ -72,6 +74,8 @@ tasks:
       Lead: {{ trigger.body.name }}
       Email: {{ trigger.body.email }}
       WhatsApp: {{ trigger.body.whatsapp }}
+      Estado: {{ trigger.body.estado }}
+      Cidade: {{ trigger.body.cidade }}
       Valor da Conta: R$ {{ trigger.body.account_value }}
       Message ID: {{ outputs['send-whatsapp-template'].vars.whatsapp_message_id }}
       Timestamp: {{ execution.startDate }}
@@ -89,6 +93,8 @@ tasks:
       ==========================================
       Lead: {{ trigger.body.name }}
       WhatsApp: {{ trigger.body.whatsapp }}
+      Estado: {{ trigger.body.estado }}
+      Cidade: {{ trigger.body.cidade }}
       Erro: Falha ao enviar template de ativação
       Timestamp: {{ execution.startDate }}
       

@@ -34,7 +34,9 @@ tasks:
           "--phone", shlex.quote('{{ trigger.body.whatsapp }}'),
           "--email", shlex.quote('{{ trigger.body.email }}'),
           "--account_value", shlex.quote('{{ trigger.body.account_value | default("") }}'),
-          "--client_type", shlex.quote('{{ trigger.body.client_type | default("") }}')
+          "--client_type", shlex.quote('{{ trigger.body.client_type | default("") }}'),
+          "--state", shlex.quote('{{ trigger.body.estado | default("") }}'),
+          "--city", shlex.quote('{{ trigger.body.cidade | default("") }}')
       ]
       
       # Executa o comando e verifica por erros
@@ -88,6 +90,8 @@ tasks:
       Lead: {{ trigger.body.name }}
       Email: {{ trigger.body.email }}
       WhatsApp: {{ trigger.body.whatsapp }}
+      Estado: {{ trigger.body.estado }}
+      Cidade: {{ trigger.body.cidade }}
       Valor da Conta: R$ {{ trigger.body.account_value }}
       Timestamp: {{ execution.startDate }}
       

@@ -26,6 +26,23 @@ x-kestra-config: &kestra-config
           enabled: true
           paths:
             - /app/flows
+      server:
+        cors:
+          enabled: true
+          configurations:
+            web:
+              allowed-origins:
+                - "http://localhost:3000"
+                - "http://127.0.0.1:3000"
+              allowed-methods:
+                - GET
+                - POST
+                - PUT
+                - DELETE
+                - OPTIONS
+              allowed-headers:
+                - "*"
+              allow-credentials: true
 
 networks:
   kestra-network:
