@@ -1,85 +1,94 @@
-id: lead-activation-v3
-namespace: serena.energia
-description: "Workflow de ativação de lead v3 - Captura do formulário e envio de template WhatsApp inicial"
+id: 1_lead_activation_flow
+namespace: serena.production
+description: "Fluxo de Produção 1: Salva o lead inicial no Supabase e envia o template de ativação."
 
 triggers:
-  - id: lead-capture-webhook
+  - id: activate_production_lead
     type: io.kestra.plugin.core.trigger.Webhook
-    key: lead_capture_v3
-    description: "Recebe dados do formulário de captura de lead"
-
-variables:
-  # Configurações do ambiente
-  phone_number_id: "{{ env.WHATSAPP_PHONE_NUMBER_ID }}"
-  template_name: "{{ env.WHATSAPP_WELCOME_TEMPLATE_NAME }}"
+    key: activate_production_lead
 
 tasks:
-  # Tarefa 1: Enviar template WhatsApp inicial
-  - id: send-whatsapp-template
+  # TAREFA 1: Salvar o lead inicial no banco de dados.
+  - id: save_initial_lead
     type: io.kestra.plugin.scripts.python.Script
-    description: "Envia template de ativação WhatsApp para o lead"
+    description: "Salva os dados iniciais do formulário no Supabase."
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
+    
+    # Passa APENAS os secrets necessários para esta tarefa (com a sintaxe correta).
+    env:
+      SUPABASE_URL: "{{ envs.supabase_url }}"
+      SUPABASE_KEY: "{{ envs.supabase_key }}"
+    
+    script: |
+      import subprocess
+      import shlex
+
+      # Monta o comando de forma segura para evitar problemas de injeção
+      command = [
+          "python", "/app/scripts/save_lead_to_supabase.py",
+          "--name", shlex.quote('{{ trigger.body.name }}'),
+          "--phone", shlex.quote('{{ trigger.body.whatsapp }}'),
+          "--email", shlex.quote('{{ trigger.body.email }}'),
+          "--account_value", shlex.quote('{{ trigger.body.account_value | default("") }}'),
+          "--client_type", shlex.quote('{{ trigger.body.client_type | default("") }}')
+      ]
+      
+      # Executa o comando e verifica por erros
+      subprocess.run(command, check=True, text=True)
+
+  # TAREFA 2: Enviar o template de ativação via WhatsApp.
+  # Esta tarefa só executa se a anterior (save_initial_lead) for bem-sucedida.
+  - id: send_activation_template
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envia o template inicial de WhatsApp para o lead."
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+        
+    # Passa APENAS os secrets necessários para esta tarefa (com a sintaxe correta).
+    env:
+      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+      WHATSAPP_WELCOME_TEMPLATE_NAME: "{{ envs.whatsapp_welcome_template_name }}"
+
     script: |
       import sys
       sys.path.append('/app')
       
-      # Importa o script de envio de template
       from scripts.send_whatsapp_template import send_activation_template
-      
-      # Dados do trigger
-      lead_data = {
-          'name': '{{ trigger.body.name }}',
-          'email': '{{ trigger.body.email }}',
-          'whatsapp': '{{ trigger.body.whatsapp }}',
-          'account_value': '{{ trigger.body.account_value }}'
-      }
-      
-      # Envia template WhatsApp
+      import os
+
       result = send_activation_template(
-          phone_number=lead_data['whatsapp'],
-          lead_name=lead_data['name'],
-          phone_number_id='{{ vars.phone_number_id }}',
-          template_name='{{ vars.template_name }}'
+          phone_number='{{ trigger.body.whatsapp }}',
+          lead_name='{{ trigger.body.name }}',
+          phone_number_id=os.environ['WHATSAPP_PHONE_NUMBER_ID'],
+          template_name=os.environ['WHATSAPP_WELCOME_TEMPLATE_NAME']
       )
       
-      # Saída para próximas tarefas
-      print(f"::set-output name=template_sent::{result['success']}")
-      print(f"::set-output name=whatsapp_message_id::{result.get('message_id', 'N/A')}")
-      print(f"::set-output name=lead_phone::{lead_data['whatsapp']}")
+      # Saída para os logs
+      success = result['success']
+      message_id = result.get('message_id', 'N/A')
+      
+      print(f"SUCCESS: {success}")
+      print(f"MESSAGE_ID: {message_id}")
 
-  # Tarefa 2: Log de sucesso
-  - id: log-activation-success
+  # TAREFA 3: Log de conclusão
+  - id: log_completion
     type: io.kestra.plugin.core.log.Log
-    description: "Registra sucesso do envio do template de ativação"
-    condition: "{{ outputs['send-whatsapp-template'].vars.template_sent == 'True' }}"
+    description: "Registra conclusão do fluxo de ativação"
     message: |
-      ✅ TEMPLATE DE ATIVAÇÃO ENVIADO COM SUCESSO
+      ✅ FLUXO DE ATIVAÇÃO CONCLUÍDO
       ================================================
       Lead: {{ trigger.body.name }}
       Email: {{ trigger.body.email }}
       WhatsApp: {{ trigger.body.whatsapp }}
       Valor da Conta: R$ {{ trigger.body.account_value }}
-      Message ID: {{ outputs['send-whatsapp-template'].vars.whatsapp_message_id }}
       Timestamp: {{ execution.startDate }}
       
-      O lead deve receber o template e clicar em "Ativar Perfil" para iniciar a conversa com IA.
-
-  # Tarefa 3: Log de erro (se houver falha)
-  - id: log-activation-error
-    type: io.kestra.plugin.core.log.Log
-    description: "Registra erro no envio do template"
-    condition: "{{ outputs['send-whatsapp-template'].vars.template_sent != 'True' }}"
-    level: ERROR
-    message: |
-      ❌ ERRO NO ENVIO DO TEMPLATE DE ATIVAÇÃO
-      ==========================================
-      Lead: {{ trigger.body.name }}
-      WhatsApp: {{ trigger.body.whatsapp }}
-      Erro: Falha ao enviar template de ativação
-      Timestamp: {{ execution.startDate }}
-      
-      Verificar logs do serviço WhatsApp e configurações do template. 
+      O lead foi salvo no Supabase e o template de ativação foi enviado via WhatsApp. 

@@ -1,3 +1,32 @@
+version: '3.8'
+
+# Âncora YAML para a configuração do Kestra, evitando repetição
+x-kestra-config: &kestra-config
+  KESTRA_CONFIGURATION: |
+    datasources:
+      postgres:
+        url: jdbc:postgresql://postgres:5432/kestra
+        driverClassName: org.postgresql.Driver
+        username: kestra
+        password: kestra123
+    kestra:
+      repository:
+        type: postgres
+      storage:
+        type: local
+        local:
+          basePath: "/app/storage"
+      queue:
+        type: postgres
+      variables:
+        env-vars-prefix: ""  # Empty prefix to expose all environment variables directly
+    micronaut:
+      io:
+        watch:
+          enabled: true
+          paths:
+            - /app/flows
+
 networks:
   kestra-network:
     driver: bridge
@@ -39,78 +68,63 @@ services:
       timeout: 5s
       retries: 5
 
-  kestra-minimal:
-    image: kestra/kestra:latest
-    container_name: kestra-minimal
-    command: ["server", "local"]
-    user: root
-    ports:
-      - "8081:8080"  # Porta diferente para não conflitar
-    volumes:
-      - /Users/user/.docker/run/docker.sock:/var/run/docker.sock
-      - ./kestra/workflows:/app/workflows:ro
-      - ./.env:/app/.env:ro
+  # 1. NOVO SERVIÇO: APENAS PARA MIGRAÇÃO DO BANCO DE DADOS
+  # Este serviço executa a migração e termina.
+  kestra-migration:
+    image: kestra/kestra:latest-full # Usar imagem 'full' garante que todos os drivers JDBC estejam presentes
+    command: ["database", "migrate"]
+    user: root  # Needed for Docker socket access
+    env_file:
+      - .env
     environment:
-      # APENAS os plugins essenciais para nosso projeto
-      KESTRA_PLUGINS: >
+      <<: *kestra-config # Reutiliza a configuração do Kestra
+    networks:
+      - kestra-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # 2. SERVIÇO KESTRA MODIFICADO
+  kestra-minimal:
+    image: kestra/kestra:latest-full # Usar imagem 'full' é recomendado
+    container_name: kestra-minimal
+    command: ["server", "standalone"]
+    user: root  # Needed for Docker socket access
+    ports:
+      - "8081:8080"
+    volumes:
+      # Caminho padrão para o Docker socket, mais portável que um caminho de usuário específico
+      - /var/run/docker.sock:/var/run/docker.sock 
+      - ./kestra/workflows:/app/flows
+    env_file:
+      - .env
+    environment:
+      <<: *kestra-config # Reutiliza a configuração do Kestra
+      # Configurações do Kestra
+      KESTRA_LOG_LEVEL: DEBUG
+      # Plugins essenciais (a sintaxe parece correta)
+      KESTRA_PLUGINS: |
         io.kestra.plugin:plugin-docker:[0.22,0.23)
         io.kestra.plugin:plugin-script-python:[0.22,0.23)
         io.kestra.plugin:plugin-fs:[0.22,0.23)
-      
-      # Python e ferramentas básicas
-      APT_PACKAGES: "python3 python3-venv python-is-python3 python3-pip curl"
-      PYTHON_LIBRARIES: "kestra python-dotenv requests openai supabase"
-      
-      # Database config
-      KESTRA_REPOSITORY_TYPE: postgres
-      KESTRA_QUEUE_TYPE: postgres
-      KESTRA_DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/kestra
-      KESTRA_DATASOURCES_DEFAULT_USERNAME: kestra
-      KESTRA_DATASOURCES_DEFAULT_PASSWORD: kestra123
-      
-      # JVM otimizado
+      # JVM e Timezone (estavam corretos)
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=50.0 -Xms256m -Xmx1g"
-      
-      # Timezone
       TZ: America/Sao_Paulo
     
     networks:
       - kestra-network
     
+    # 3. ALTERAÇÃO CRÍTICA: AGORA DEPENDE DA MIGRAÇÃO
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - kestra-migration
+      - redis
     
     restart: always
     
+    # Healthcheck mais robusto que não depende da existência de flows
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/flows"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ui/"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 120s
-
-  # WhatsApp Service (mantemos funcionando)
-  whatsapp-service:
-    build:
-      context: .
-      dockerfile: Dockerfile.whatsapp
-    container_name: whatsapp-service-minimal
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./.env:/app/.env:ro
-      - ./scripts:/app/scripts:ro
-      - ./utils:/app/utils:ro
-    environment:
-      - ENV_FILE=/app/.env
-    networks:
-      - kestra-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3 

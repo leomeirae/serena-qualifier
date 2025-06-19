@@ -1,0 +1,95 @@
+id: 1_lead_activation_flow
+namespace: serena.production
+description: "Workflow de ativação de lead v3 - Captura do formulário e envio de template WhatsApp inicial"
+
+triggers:
+  - id: activate_production_lead
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: activate_production_lead
+    description: "Recebe dados do formulário de captura de lead"
+
+variables:
+  # Configurações do ambiente
+  phone_number_id: "{{ envs.whatsapp_phone_number_id }}"
+  template_name: "{{ envs.whatsapp_welcome_template_name }}"
+
+tasks:
+  # Tarefa 1: Enviar template WhatsApp inicial
+  - id: send-whatsapp-template
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envia template de ativação WhatsApp para o lead"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    
+    # Passa as variáveis de ambiente do arquivo .env
+    env:
+      OPENAI_API_KEY: "{{ envs.openai_api_key }}"
+      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+      SUPABASE_URL: "{{ envs.supabase_url }}"
+      SUPABASE_KEY: "{{ envs.supabase_key }}"
+      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
+    
+    script: |
+      import sys
+      sys.path.append('/app')
+      
+      # Importa o script de envio de template
+      from scripts.send_whatsapp_template import send_activation_template
+      
+      # Dados do trigger
+      lead_data = {
+          'name': '{{ trigger.body.name }}',
+          'email': '{{ trigger.body.email }}',
+          'whatsapp': '{{ trigger.body.whatsapp }}',
+          'account_value': '{{ trigger.body.account_value }}'
+      }
+      
+      # Envia template WhatsApp
+      result = send_activation_template(
+          phone_number=lead_data['whatsapp'],
+          lead_name=lead_data['name'],
+          phone_number_id='{{ vars.phone_number_id }}',
+          template_name='{{ vars.template_name }}'
+      )
+      
+      # Saída para próximas tarefas
+      print(f"::set-output name=template_sent::{result['success']}")
+      print(f"::set-output name=whatsapp_message_id::{result.get('message_id', 'N/A')}")
+      print(f"::set-output name=lead_phone::{lead_data['whatsapp']}")
+
+  # Tarefa 2: Log de sucesso
+  - id: log-activation-success
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra sucesso do envio do template de ativação"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent == 'True' }}"
+    message: |
+      ✅ TEMPLATE DE ATIVAÇÃO ENVIADO COM SUCESSO
+      ================================================
+      Lead: {{ trigger.body.name }}
+      Email: {{ trigger.body.email }}
+      WhatsApp: {{ trigger.body.whatsapp }}
+      Valor da Conta: R$ {{ trigger.body.account_value }}
+      Message ID: {{ outputs['send-whatsapp-template'].vars.whatsapp_message_id }}
+      Timestamp: {{ execution.startDate }}
+      
+      O lead deve receber o template e clicar em "Ativar Perfil" para iniciar a conversa com IA.
+
+  # Tarefa 3: Log de erro (se houver falha)
+  - id: log-activation-error
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra erro no envio do template"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent != 'True' }}"
+    level: ERROR
+    message: |
+      ❌ ERRO NO ENVIO DO TEMPLATE DE ATIVAÇÃO
+      ==========================================
+      Lead: {{ trigger.body.name }}
+      WhatsApp: {{ trigger.body.whatsapp }}
+      Erro: Falha ao enviar template de ativação
+      Timestamp: {{ execution.startDate }}
+      
+      Verificar logs do serviço WhatsApp e configurações do template. 

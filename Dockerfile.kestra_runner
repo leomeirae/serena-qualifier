@@ -1,0 +1,18 @@
+# Usar a imagem oficial do Python como base
+FROM python:3.11-slim
+
+# Definir o diretório de trabalho dentro do contêiner
+WORKDIR /app
+
+# Copiar o arquivo de dependências primeiro para aproveitar o cache do Docker
+COPY requirements.txt .
+
+# Instalar as dependências Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar todos os nossos scripts para dentro da imagem
+# Isso resolve o problema de "File Not Found"
+COPY ./scripts/ /app/scripts/
+
+# Comando padrão (opcional, pois o Kestra irá sobrescrevê-lo)
+CMD ["python"] 
