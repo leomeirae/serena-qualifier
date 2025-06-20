@@ -44,12 +44,13 @@ A seguir, a estrutura de diretórios principal para rápida localização dos ar
 
 Implementar um sistema automatizado para a captura, interação, qualificação e persistência de leads para a Serena Energia, utilizando Kestra para orquestração de alto nível e um agente de IA especializado (baseado em LangChain) para toda a lógica de conversação.
 
-### **Arquitetura de Dois Workflows**
+### **Arquitetura de Dois Workflows + Webhook Service**
 
-O sistema opera com uma arquitetura de **dois workflows Kestra distintos e desacoplados** para garantir robustez e clareza.
+O sistema opera com uma arquitetura de **dois workflows Kestra + serviço webhook** para garantir robustez e clareza.
 
 1. **Fluxo de Ativação**: Responsável unicamente pela captura do lead e pelo envio da primeira mensagem de ativação.  
-2. **Fluxo de Conversação**: Responsável por toda a interação subsequente, delegando a "inteligência" para o SerenaAIAgent.
+2. **Webhook Service**: Ponte entre WhatsApp Business API e Kestra (FastAPI na porta 8000).
+3. **Fluxo de Conversação**: Responsável por toda a interação subsequente, delegando a "inteligência" para o ai_conversation_handler.py.
 
 ### **Diagrama da Arquitetura**
 
@@ -60,14 +61,14 @@ sequenceDiagram
     participant LP as Landing Page (Next.js)  
     participant Kestra1 as Kestra (Fluxo Ativação)  
     participant WhatsApp as WhatsApp API  
-    participant WebhookSvc as Serviço Webhook (Python)  
+    participant WebhookSvc as Webhook Service (FastAPI:8000)  
     participant Kestra2 as Kestra (Fluxo Conversa)  
-    participant AIAgent as SerenaAIAgent (LangChain)  
+    participant AIHandler as ai_conversation_handler.py  
     participant Supabase  
     participant SerenaAPI as API Serena
 
     User-\>\>LP: Preenche Formulário  
-    LP-\>\>Kestra1: POST /capture (Webhook)  
+    LP-\>\>Kestra1: POST /activate_production_lead (Webhook)  
     Kestra1-\>\>Supabase: Salva Lead Inicial  
     Kestra1-\>\>WhatsApp: Envia Template de Ativação  
     activate WhatsApp  
@@ -75,16 +76,16 @@ sequenceDiagram
     deactivate WhatsApp  
     User-\>\>WhatsApp: Clica em "Ativar Perfil\!"  
     WhatsApp-\>\>WebhookSvc: POST /webhook (Mensagem do Lead)  
-    WebhookSvc-\>\>Kestra2: POST /continue (Webhook)  
-    Kestra2-\>\>AIAgent: Executa Agente com a mensagem  
-    activate AIAgent  
-        AIAgent-\>\>Supabase: Pede histórico da conversa  
-        Supabase--\>\>AIAgent: Retorna histórico  
-        AIAgent-\>\>SerenaAPI: Verifica cobertura/planos  
-        SerenaAPI--\>\>AIAgent: Retorna dados  
-        AIAgent-\>\>AIAgent: Gera resposta  
-        AIAgent--\>\>Kestra2: Retorna texto da resposta  
-    deactivate AIAgent  
+    WebhookSvc-\>\>Kestra2: POST /converse_production_lead (Webhook)  
+    Kestra2-\>\>AIHandler: Executa ai_conversation_handler.py  
+    activate AIHandler  
+        AIHandler-\>\>Supabase: Busca dados do lead  
+        Supabase--\>\>AIHandler: Retorna dados  
+        AIHandler-\>\>SerenaAPI: Consulta planos por localização  
+        SerenaAPI--\>\>AIHandler: Retorna planos  
+        AIHandler-\>\>AIHandler: Gera resposta com IA  
+        AIHandler--\>\>Kestra2: Retorna resposta  
+    deactivate AIHandler  
     Kestra2-\>\>WhatsApp: Envia resposta da IA  
     WhatsApp--\>\>User: Exibe resposta
 
@@ -153,24 +154,26 @@ Este fluxo unificado descreve a jornada completa do lead, desde a captura até a
     - Após o lead escolher ou tirar dúvidas, a IA informa que um responsável entrará em contato, agradece e se despede.
 7.  **Persistência Final**: Ao final de toda a interação, um script é executado para salvar **todos os dados consolidados** do lead (dados do formulário, localização, thread da conversa, promoção de interesse, status de qualificação) em uma única tabela no Supabase.
 
-## **5\. Guia de Comportamento do Agente de IA (OpenAI Assistant)**
+## **5\. Guia de Comportamento do Agente de IA**
 
-O OpenAI Assistant é o cérebro do sistema, gerenciado pelos novos componentes:
+O sistema de IA é baseado em **ai_conversation_handler.py** que integra:
 
-* **scripts/assistant_manager.py**: Gerencia criação e configuração do Assistant
-* **scripts/thread_manager.py**: Gerencia threads de conversação por usuário
-* **scripts/assistant_function_handler.py**: Bridge para ferramentas customizadas
+* **scripts/ai_conversation_handler.py**: Processador principal de conversação com IA
+* **scripts/serena_api.py**: Integração com API Serena para consulta de planos
+* **scripts/vision_processor.py**: Processamento de imagens (OCR) de contas de energia
+* **scripts/location_extractor.py**: Extração de localização das mensagens
+* **webhook_service.py**: Serviço FastAPI que recebe webhooks do WhatsApp
 
-### **Ferramentas Disponíveis (tools)**
+### **Módulos Integrados**
 
-* **conversation\_tool**: Interage com o Supabase.  
-* **serena\_api\_tool**: Consulta a API da Serena.  
-* **ocr\_tool**: Extrai dados de contas de energia com processamento inteligente.
-  - **6 Ações**: process_image, extract_fields, validate_invoice, identify_distributor, validate_structured, get_supported_distributors
-  - **20+ Distribuidoras**: CEMIG, ENEL, LIGHT, CPFL, ELEKTRO, COELBA, CELPE, COSERN, COELCE, CELG, CEB, COPEL, RGE, CEEE, CELESC, ENERGISA, AMPLA, BANDEIRANTE, PIRATININGA, AES SUL
-  - **Validação Robusta**: 8 critérios com score de confiança 0-100%
+* **Conversação**: ai_conversation_handler.py processa mensagens e gera respostas inteligentes
+* **API Serena**: serena_api.py consulta planos de energia disponíveis por localização
+* **Processamento OCR**: vision_processor.py extrai dados de contas de energia com IA
+  - **Suporte a 20+ Distribuidoras**: CEMIG, ENEL, LIGHT, CPFL, ELEKTRO, COELBA, CELPE, COSERN, COELCE, CELG, CEB, COPEL, RGE, CEEE, CELESC, ENERGISA, AMPLA, BANDEIRANTE, PIRATININGA, AES SUL
+  - **Validação Inteligente**: Extração automática de nome, valor, consumo, distribuidora
   - **Qualificação Automática**: Mínimo R$ 200/mês para aprovação
-* **rag\_tool**: Responde dúvidas gerais sobre energia solar usando knowledge base.
+* **Localização**: location_extractor.py identifica cidade/estado das mensagens
+* **Webhook**: webhook_service.py gerencia comunicação WhatsApp ↔ Kestra
 
 ### **Tratamento de Exceções e Casos Especiais**
 
@@ -194,7 +197,7 @@ O OpenAI Assistant é o cérebro do sistema, gerenciado pelos novos componentes:
 
 ### **Fluxo de Processamento OCR**
 
-O sistema implementa processamento inteligente de contas de energia através do SerenaAIAgent integrado ao core\_agent.py.
+O sistema implementa processamento inteligente de contas de energia através do ai_conversation_handler.py integrado ao vision_processor.py.
 
 ### **Detecção Automática de Contexto**
 

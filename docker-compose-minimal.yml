@@ -145,3 +145,34 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+  # 3. NOVO SERVIÇO: WEBHOOK WHATSAPP → KESTRA
+  whatsapp-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    container_name: whatsapp-webhook-service
+    ports:
+      - "8000:8000"  # Porta para receber webhooks do WhatsApp
+    env_file:
+      - .env
+    environment:
+      # Configurações específicas do webhook
+      WHATSAPP_VERIFY_TOKEN: "serena_webhook_verify_token"
+      KESTRA_API_URL: "http://kestra-minimal:8080"
+      PYTHONPATH: "/app"
+    volumes:
+      - ./:/app
+    networks:
+      - kestra-network
+    depends_on:
+      kestra-minimal:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["uvicorn", "webhook_service:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

@@ -1,31 +1,33 @@
 id: 2_ai_conversation_flow
 namespace: serena.production
-description: "Workflow de conversação com IA v3 - Processa mensagens do lead e inicia conversa inteligente"
+description: "Workflow de conversação com IA v4 - Resposta instantânea + monitoramento de inatividade"
 
 triggers:
   - id: converse_production_lead
     type: io.kestra.plugin.core.trigger.Webhook
     key: converse_production_lead
-    description: "Recebe mensagens do lead para iniciar conversa com IA"
+    description: "Recebe mensagens do lead para conversa contínua com IA"
 
 variables:
   # Configurações do modelo de IA
   ai_model: "gpt-4o-mini"
-  max_tokens: 300
+  max_tokens: 400
   temperature: 0.7
+  # Timeout para inatividade (2 horas)
+  inactivity_timeout: "PT2H"
 
 tasks:
-  # Tarefa: Processar mensagem e iniciar conversa com IA
+  # TASK 1: Processar mensagem e responder INSTANTANEAMENTE
   - id: process-lead-message
     type: io.kestra.plugin.scripts.python.Script
-    description: "Processa mensagem do lead e envia primeira resposta da IA"
+    description: "Processa mensagem do lead e envia resposta instantânea da IA"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
     
-    # Passa as variáveis de ambiente do arquivo .env
+    # Variáveis de ambiente necessárias
     env:
       OPENAI_API_KEY: "{{ envs.openai_api_key }}"
       WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
@@ -43,56 +45,195 @@ tasks:
       
       # Dados do trigger (mensagem do lead)
       phone_number = '{{ trigger.body.phone }}'
-      message = '{{ trigger.body.message }}'
+      message = '{{ trigger.body.message | default("") }}'
+      media_id = '{{ trigger.body.media_id | default("") }}'
       
       # Log da mensagem recebida
-      print(f"📱 Mensagem recebida de {phone_number}")
+      print(f"📱 RESPOSTA INSTANTÂNEA - Mensagem de {phone_number}")
       print(f"💬 Conteúdo: {message}")
+      if media_id:
+          print(f"🖼️ Media ID: {media_id}")
       
-      # Processa mensagem e envia resposta
+      # Processa mensagem e envia resposta INSTANTANEAMENTE
       result = handle_lead_message(
           phone_number=phone_number,
           message=message,
+          media_id=media_id if media_id else None,
           ai_model='{{ vars.ai_model }}',
           max_tokens={{ vars.max_tokens }},
           temperature={{ vars.temperature }}
       )
       
-      # Outputs para logging
+      # Outputs para próximas tasks
       print(f"::set-output name=response_sent::{result['success']}")
       print(f"::set-output name=ai_response::{result.get('ai_response', 'N/A')}")
       print(f"::set-output name=whatsapp_message_id::{result.get('whatsapp_message_id', 'N/A')}")
       print(f"::set-output name=lead_phone::{phone_number}")
+      print(f"::set-output name=conversation_completed::{result.get('conversation_completed', False)}")
 
-  # Log de sucesso da conversa
+  # TASK 2: Aguardar próxima mensagem OU timeout por inatividade (2h)
+  - id: wait-for-response
+    type: io.kestra.plugin.core.tasks.flows.WaitForWebhook
+    description: "Aguarda próxima mensagem do lead ou detecta inatividade após 2h"
+    runIf: "{{ outputs['process-lead-message'].vars.response_sent == 'True' and outputs['process-lead-message'].vars.conversation_completed != 'True' }}"
+    timeout: "{{ vars.inactivity_timeout }}"
+    webhook:
+      # Webhook key dinâmica baseada no phone_number (sem caracteres especiais)
+      key: "ai_conversation_{{ trigger.body.phone | replace('+', '') | replace(' ', '') | replace('-', '') }}"
+    
+    # TIMEOUT: Se lead ficar 2h inativo, enviar lembrete
+    onTimeout:
+      - id: send-reminder-message
+        type: io.kestra.plugin.scripts.python.Script
+        description: "Envia mensagem de lembrete após 2h de inatividade"
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+          image: serena/kestra-python-runner:latest
+          pullPolicy: NEVER
+          networkMode: serena-qualifier_kestra-network
+        
+        env:
+          WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
+          WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+        
+        script: |
+          import sys
+          sys.path.append('/app')
+          
+                     import requests
+           import json
+           import os
+           
+           # Dados do lead
+           phone_number = '{{ trigger.body.phone }}'
+           
+           # Normalizar número de telefone
+           normalized_phone = phone_number.strip().replace(" ", "").replace("-", "")
+           if not normalized_phone.startswith("+"):
+               if normalized_phone.startswith("55"):
+                   normalized_phone = "+" + normalized_phone
+               else:
+                   normalized_phone = "+55" + normalized_phone
+           
+           # Mensagem de lembrete personalizada
+           reminder_message = """👋 Olá! Sou a assistente da Serena Energia.
+
+Notei que nossa conversa ficou pausada. Estou aqui para te ajudar a descobrir como economizar na sua conta de luz! ⚡
+
+🎯 Você pode:
+• Me enviar sua cidade/estado para consultar promoções
+• Enviar foto da sua conta de energia para análise
+• Tirar dúvidas sobre energia solar
+
+Estou aguardando! 😊💚"""
+           
+           print(f"⏰ TIMEOUT - Enviando lembrete para {normalized_phone}")
+           
+           # Configurar API WhatsApp
+           url = f"https://graph.facebook.com/v23.0/{os.environ['WHATSAPP_PHONE_NUMBER_ID']}/messages"
+           headers = {
+               "Authorization": f"Bearer {os.environ['WHATSAPP_API_TOKEN']}",
+               "Content-Type": "application/json"
+           }
+           
+           payload = {
+               "messaging_product": "whatsapp",
+               "to": normalized_phone,
+               "type": "text",
+               "text": {"body": reminder_message}
+           }
+           
+           # Enviar mensagem de lembrete
+           response = requests.post(url, json=payload, headers=headers, timeout=10)
+           
+           if response.status_code == 200:
+               response_data = response.json()
+               message_id = response_data.get("messages", [{}])[0].get("id", "unknown")
+               result = {"success": True, "message_id": message_id}
+           else:
+               error_msg = response.json().get("error", {}).get("message", "Erro desconhecido")
+               result = {"success": False, "error": error_msg}
+          
+          print(f"✅ Lembrete enviado: {result['success']}")
+          if result['success']:
+              print(f"📨 Message ID: {result['message_id']}")
+
+  # TASK 3: Processar resposta recebida (cancela o timeout)
+  - id: process-continued-conversation
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Processa nova mensagem recebida (cancela timeout)"
+    runIf: "{{ outputs['wait-for-response'].response is not null }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    
+    env:
+      OPENAI_API_KEY: "{{ envs.openai_api_key }}"
+      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+      SUPABASE_URL: "{{ envs.supabase_url }}"
+      SUPABASE_KEY: "{{ envs.supabase_key }}"
+      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
+    
+    script: |
+      import sys
+      sys.path.append('/app')
+      
+      from scripts.ai_conversation_handler import handle_lead_message
+      
+      # Dados da nova mensagem recebida
+      webhook_response = {{ outputs['wait-for-response'].response | default({}) }}
+      phone_number = webhook_response.get('phone', '{{ trigger.body.phone }}')
+      message = webhook_response.get('message', '')
+      media_id = webhook_response.get('media_id', '')
+      
+      print(f"🔄 CONTINUAÇÃO - Nova mensagem de {phone_number}")
+      print(f"💬 Conteúdo: {message}")
+      
+      # Processar nova mensagem (RESPOSTA INSTANTÂNEA)
+      result = handle_lead_message(
+          phone_number=phone_number,
+          message=message,
+          media_id=media_id if media_id else None,
+          ai_model='{{ vars.ai_model }}',
+          max_tokens={{ vars.max_tokens }},
+          temperature={{ vars.temperature }}
+      )
+      
+      print(f"✅ Resposta processada: {result['success']}")
+
+  # LOG: Sucesso do processamento
   - id: log-conversation-success
     type: io.kestra.plugin.core.log.Log
-    description: "Registra sucesso do processamento da conversa"
+    description: "Log de sucesso da conversa"
     runIf: "{{ outputs['process-lead-message'].vars.response_sent == 'True' }}"
     message: |
-      ✅ CONVERSA COM IA INICIADA COM SUCESSO
-      =====================================
+      ✅ CONVERSA COM IA - RESPOSTA INSTANTÂNEA ENVIADA
+      ===============================================
       Phone: {{ trigger.body.phone }}
-      Message Received: {{ trigger.body.message }}
+      Message: {{ trigger.body.message }}
       AI Response: {{ outputs['process-lead-message'].vars.ai_response }}
       WhatsApp Message ID: {{ outputs['process-lead-message'].vars.whatsapp_message_id }}
+      Conversation Completed: {{ outputs['process-lead-message'].vars.conversation_completed }}
       Model Used: {{ vars.ai_model }}
       Timestamp: {{ execution.startDate }}
       
-      O lead deve receber a solicitação de cidade e estado para prosseguir.
+      🔄 Sistema de monitoramento de inatividade (2h) iniciado.
 
-  # Log de erro no processamento
+  # LOG: Erro no processamento
   - id: log-conversation-error
     type: io.kestra.plugin.core.log.Log
-    description: "Registra erro no processamento da conversa"
+    description: "Log de erro na conversa"
     runIf: "{{ outputs['process-lead-message'].vars.response_sent != 'True' }}"
     level: ERROR
     message: |
-      ❌ ERRO NO PROCESSAMENTO DA CONVERSA COM IA
-      ==========================================
+      ❌ ERRO NO PROCESSAMENTO DA CONVERSA
+      ===================================
       Phone: {{ trigger.body.phone }}
-      Message Received: {{ trigger.body.message }}
+      Message: {{ trigger.body.message }}
       Model: {{ vars.ai_model }}
       Timestamp: {{ execution.startDate }}
       
-      Verificar logs do AI handler e configurações da OpenAI API. 
+      Verificar logs do AI handler e configurações. 
