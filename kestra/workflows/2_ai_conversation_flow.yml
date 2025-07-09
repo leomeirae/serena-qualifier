@@ -29,12 +29,12 @@ tasks:
     
     # Variáveis de ambiente necessárias
     env:
-      OPENAI_API_KEY: "{{ envs.openai_api_key }}"
-      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
-      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
-      SUPABASE_URL: "{{ envs.supabase_url }}"
-      SUPABASE_KEY: "{{ envs.supabase_key }}"
-      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ secret('WHATSAPP_PHONE_NUMBER_ID') }}"
+      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
+      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}"
+      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
     
     script: |
       import sys
@@ -93,16 +93,16 @@ tasks:
           networkMode: serena-qualifier_kestra-network
         
         env:
-          WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
-          WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+          WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
+          WHATSAPP_PHONE_NUMBER_ID: "{{ secret('WHATSAPP_PHONE_NUMBER_ID') }}"
         
         script: |
           import sys
           sys.path.append('/app')
           
-                     import requests
-           import json
-           import os
+          import requests
+          import json
+          import os
            
            # Dados do lead
            phone_number = '{{ trigger.body.phone }}'
@@ -116,16 +116,7 @@ tasks:
                    normalized_phone = "+55" + normalized_phone
            
            # Mensagem de lembrete personalizada
-           reminder_message = """👋 Olá! Sou a assistente da Serena Energia.
-
-Notei que nossa conversa ficou pausada. Estou aqui para te ajudar a descobrir como economizar na sua conta de luz! ⚡
-
-🎯 Você pode:
-• Me enviar sua cidade/estado para consultar promoções
-• Enviar foto da sua conta de energia para análise
-• Tirar dúvidas sobre energia solar
-
-Estou aguardando! 😊💚"""
+           reminder_message = "👋 Olá! Sou a assistente da Serena Energia.\n\nNotei que nossa conversa ficou pausada. Estou aqui para te ajudar a descobrir como economizar na sua conta de luz! ⚡\n\n🎯 Você pode:\n• Me enviar sua cidade/estado para consultar promoções\n• Enviar foto da sua conta de energia para análise\n• Tirar dúvidas sobre energia solar\n\nEstou aguardando! 😊💚"
            
            print(f"⏰ TIMEOUT - Enviando lembrete para {normalized_phone}")
            
@@ -170,12 +161,12 @@ Estou aguardando! 😊💚"""
       networkMode: serena-qualifier_kestra-network
     
     env:
-      OPENAI_API_KEY: "{{ envs.openai_api_key }}"
-      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
-      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
-      SUPABASE_URL: "{{ envs.supabase_url }}"
-      SUPABASE_KEY: "{{ envs.supabase_key }}"
-      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ secret('WHATSAPP_PHONE_NUMBER_ID') }}"
+      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
+      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}"
+      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
     
     script: |
       import sys

@@ -17,15 +17,14 @@ tasks:
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
-    
-    # Passa APENAS os secrets necessários para esta tarefa (com a sintaxe correta).
     env:
-      SUPABASE_URL: "{{ envs.supabase_url }}"
-      SUPABASE_KEY: "{{ envs.supabase_key }}"
-    
+      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
+      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}"
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
     script: |
       import subprocess
       import shlex
+      import os
 
       # Monta o comando de forma segura para evitar problemas de injeção
       command = [
@@ -52,13 +51,10 @@ tasks:
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
-        
-    # Passa APENAS os secrets necessários para esta tarefa (com a sintaxe correta).
     env:
-      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
-      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
-      WHATSAPP_WELCOME_TEMPLATE_NAME: "{{ envs.whatsapp_welcome_template_name }}"
-
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ secret('WHATSAPP_PHONE_NUMBER_ID') }}"
+      WHATSAPP_WELCOME_TEMPLATE_NAME: "{{ secret('WHATSAPP_WELCOME_TEMPLATE_NAME') }}"
     script: |
       import sys
       sys.path.append('/app')

@@ -108,7 +108,7 @@ services:
     command: ["server", "standalone"]
     user: root  # Needed for Docker socket access
     ports:
-      - "8081:8080"
+      - "8080:8080"
     volumes:
       # Caminho padrão para o Docker socket, mais portável que um caminho de usuário específico
       - /var/run/docker.sock:/var/run/docker.sock 
