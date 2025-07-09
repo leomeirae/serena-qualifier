@@ -31,16 +31,23 @@ from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from pythonjsonlogger import jsonlogger
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure structured (JSON) logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logHandler = logging.StreamHandler()
+# Example of a custom format
+formatter = jsonlogger.JsonFormatter(
+    '%(asctime)s %(name)s %(levelname)s %(message)s'
+)
+logHandler.setFormatter(formatter)
+# Avoid adding duplicate handlers
+if not logger.handlers:
+    logger.addHandler(logHandler)
 
 # FastAPI app
 app = FastAPI(

@@ -8,40 +8,99 @@ triggers:
     key: activate_production_lead
 
 tasks:
-  # TAREFA 1: Salvar o lead inicial no banco de dados.
-  - id: save_initial_lead
+  # TAREFA 1: Checar se o lead já foi criado recentemente para evitar duplicados.
+  - id: check_for_recent_lead
     type: io.kestra.plugin.scripts.python.Script
-    description: "Salva os dados iniciais do formulário no Supabase."
+    description: "Verifica se um lead com o mesmo número de WhatsApp foi criado nos últimos 5 minutos."
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: serena/kestra-python-runner:latest
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
     env:
-      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
-      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}"
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
     script: |
-      import subprocess
-      import shlex
+      import psycopg2
       import os
+      from datetime import datetime, timedelta
+      import sys
 
-      # Monta o comando de forma segura para evitar problemas de injeção
-      command = [
-          "python", "/app/scripts/save_lead_to_supabase.py",
-          "--name", shlex.quote('{{ trigger.body.name }}'),
-          "--phone", shlex.quote('{{ trigger.body.whatsapp }}'),
-          "--email", shlex.quote('{{ trigger.body.email }}'),
-          "--account_value", shlex.quote('{{ trigger.body.account_value | default("") }}'),
-          "--client_type", shlex.quote('{{ trigger.body.client_type | default("") }}'),
-          "--state", shlex.quote('{{ trigger.body.estado | default("") }}'),
-          "--city", shlex.quote('{{ trigger.body.cidade | default("") }}')
-      ]
+      print("Iniciando verificação de idempotência...")
+      phone_number = '{{ trigger.body.whatsapp }}'
+      db_connection_string = os.environ['DB_CONNECTION_STRING']
       
-      # Executa o comando e verifica por erros
-      subprocess.run(command, check=True, text=True)
+      try:
+          conn = psycopg2.connect(db_connection_string)
+          cur = conn.cursor()
+          
+          # Verifica se existe um lead com o mesmo número criado nos últimos 5 minutos
+          five_minutes_ago = datetime.utcnow() - timedelta(minutes=5)
+          
+          query = """
+          SELECT id, created_at FROM leads 
+          WHERE phone_number = %s AND created_at > %s 
+          ORDER BY created_at DESC LIMIT 1;
+          """
+          
+          cur.execute(query, (phone_number, five_minutes_ago))
+          recent_lead = cur.fetchone()
+          
+          cur.close()
+          conn.close()
+          
+          if recent_lead:
+              lead_id, created_at = recent_lead
+              print(f"🛑 Lead duplicado encontrado (ID: {lead_id}, Criado em: {created_at}). Abortando o fluxo para evitar duplicidade.")
+              # Lança uma exceção para parar o fluxo do Kestra
+              raise Exception(f"Lead com número {phone_number} já foi processado recentemente.")
+          else:
+              print("✅ Nenhum lead duplicado recente encontrado. Prosseguindo com o fluxo.")
+              
+      except psycopg2.Error as e:
+          print(f"❌ Erro de banco de dados durante a verificação de idempotência: {e}", file=sys.stderr)
+          raise
+      except Exception as e:
+          print(f"❌ Erro inesperado durante a verificação de idempotência: {e}", file=sys.stderr)
+          raise
 
-  # TAREFA 2: Enviar o template de ativação via WhatsApp.
+  # TAREFA 2: Salvar o lead inicial no banco de dados.
+  - id: save_initial_lead
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Salva os dados iniciais do formulário no Supabase via Conexão Direta."
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: serena/kestra-python-runner:latest
+      pullPolicy: NEVER
+      networkMode: serena-qualifier_kestra-network
+    env:
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+    script: |
+      import sys
+      import os
+      
+      # Adiciona o diretório /app para que o Python possa encontrar seus scripts customizados
+      sys.path.append('/app')
+      
+      # Importa a função específica do seu arquivo de script
+      from scripts.save_lead_to_supabase import save_lead
+      
+      print("Chamando diretamente a função save_lead usando o connection pooler do BD...")
+
+      # Chama sua função com os dados do gatilho.
+      # A função 'save_lead' agora será capaz de encontrar o DB_CONNECTION_STRING.
+      save_lead(
+          name='{{ trigger.body.name }}',
+          phone='{{ trigger.body.whatsapp }}',
+          email='{{ trigger.body.email | default("") }}',
+          account_value='{{ trigger.body.account_value | default("") }}',
+          client_type='{{ trigger.body.client_type | default("") }}',
+          state='{{ trigger.body.estado | default("") }}',
+          city='{{ trigger.body.cidade | default("") }}'
+      )
+
+      print("✅ Função de salvamento do lead executada com sucesso.")
+
+  # TAREFA 3: Enviar o template de ativação via WhatsApp.
   # Esta tarefa só executa se a anterior (save_initial_lead) for bem-sucedida.
   - id: send_activation_template
     type: io.kestra.plugin.scripts.python.Script
@@ -76,7 +135,7 @@ tasks:
       print(f"SUCCESS: {success}")
       print(f"MESSAGE_ID: {message_id}")
 
-  # TAREFA 3: Log de conclusão
+  # TAREFA 4: Log de conclusão
   - id: log_completion
     type: io.kestra.plugin.core.log.Log
     description: "Registra conclusão do fluxo de ativação"
