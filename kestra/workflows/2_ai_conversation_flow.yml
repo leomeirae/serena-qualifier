@@ -25,19 +25,24 @@ tasks:
       pullPolicy: NEVER
       networkMode: serena-qualifier_kestra-network
     
-    # Passa as variáveis de ambiente do arquivo .env
+    inputFiles:
+      scripts/__init__.py: |
+        # Scripts package for Serena Qualifier
+        # Contains AI agent tools and integrations
+      scripts/ai_conversation_handler.py: "{{ read('scripts/ai_conversation_handler.py') }}"
+      scripts/location_extractor.py: "{{ read('scripts/location_extractor.py') }}"
+      scripts/vision_processor.py: "{{ read('scripts/vision_processor.py') }}"
+      scripts/conversation_context.py: "{{ read('scripts/conversation_context.py') }}"
+      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+    
+    # --- The following blocks are now correctly indented ---
     env:
-      OPENAI_API_KEY: "{{ envs.openai_api_key }}"
-      WHATSAPP_API_TOKEN: "{{ envs.whatsapp_api_token }}"
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
-      SUPABASE_URL: "{{ envs.supabase_url }}"
-      SUPABASE_KEY: "{{ envs.supabase_key }}"
-      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
+      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
     
     script: |
-      import sys
-      sys.path.append('/app')
-      
       # Importa o handler de conversação
       from scripts.ai_conversation_handler import handle_lead_message
       
