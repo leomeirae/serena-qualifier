@@ -105,7 +105,9 @@ services:
   kestra-minimal:
     image: kestra/kestra:latest-full # Usar imagem 'full' é recomendado
     container_name: kestra-minimal
-    command: ["server", "standalone"]
+    entrypoint: /app/kestra-startup.sh
+    dns:
+      - "8.8.8.8"
     user: root  # Needed for Docker socket access
     ports:
       - "8080:8080"
@@ -113,17 +115,13 @@ services:
       # Caminho padrão para o Docker socket, mais portável que um caminho de usuário específico
       - /var/run/docker.sock:/var/run/docker.sock 
       - ./kestra/workflows:/app/flows
+      - ./kestra-startup.sh:/app/kestra-startup.sh
     env_file:
       - .env
     environment:
       <<: *kestra-config # Reutiliza a configuração do Kestra
       # Configurações do Kestra
       KESTRA_LOG_LEVEL: DEBUG
-      # Plugins essenciais (a sintaxe parece correta)
-      KESTRA_PLUGINS: |
-        io.kestra.plugin:plugin-docker:[0.22,0.23)
-        io.kestra.plugin:plugin-script-python:[0.22,0.23)
-        io.kestra.plugin:plugin-fs:[0.22,0.23)
       # JVM e Timezone (estavam corretos)
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=50.0 -Xms256m -Xmx1g"
       TZ: America/Sao_Paulo
