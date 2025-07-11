@@ -31,7 +31,6 @@ tasks:
         # Contains AI agent tools and integrations
       scripts/ai_conversation_handler.py: "{{ read('scripts/ai_conversation_handler.py') }}"
       scripts/location_extractor.py: "{{ read('scripts/location_extractor.py') }}"
-      scripts/vision_processor.py: "{{ read('scripts/vision_processor.py') }}"
       scripts/conversation_context.py: "{{ read('scripts/conversation_context.py') }}"
       scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
     

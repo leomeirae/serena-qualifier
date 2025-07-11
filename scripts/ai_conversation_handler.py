@@ -21,7 +21,6 @@ from pythonjsonlogger import jsonlogger
 
 # Importar módulos especializados
 from location_extractor import LocationExtractor
-from vision_processor import VisionProcessor
 from conversation_context import ConversationContext
 
 # Importar dependências existentes
@@ -88,8 +87,6 @@ class AIConversationHandler:
             
             # Inicializar módulos especializados
             self.location_extractor = LocationExtractor()
-            assert self.whatsapp_token is not None
-            self.vision_processor = VisionProcessor(self.openai_client, self.whatsapp_token)
             self.conversation_context = ConversationContext()
             
             # Estratégias de processamento de mensagens em ordem de prioridade
@@ -164,30 +161,59 @@ class AIConversationHandler:
         self, phone_number: str, message: str, media_id: Optional[str], 
         ai_model: str, max_tokens: int, temperature: float
     ) -> Optional[Dict[str, Any]]:
-        """Processa imagem da conta de energia, se aplicável."""
-        if not (media_id and self.vision_processor.is_energy_bill_image(message)):
+        """Processa imagem da conta de energia usando GPT-4o diretamente."""
+        # Verificar se há mídia anexada
+        if not media_id:
+            return None
+        
+        # Verificar se a mensagem indica que é uma conta de energia
+        energy_keywords = ["conta", "fatura", "energia", "light", "cemig", "copel", "cpfl"]
+        if not any(keyword in message.lower() for keyword in energy_keywords):
             return None
 
         logger.info(f"🔍 Processando imagem da conta de energia - Media ID: {media_id}")
         
         try:
-            # Obter URL da imagem
-            image_url = self.vision_processor.get_whatsapp_media_url(media_id)
+            # Obter URL da imagem do WhatsApp
+            image_url = self._get_whatsapp_media_url(media_id)
             if not image_url:
                 return self._handle_image_error(phone_number, "Não consegui acessar a imagem")
             
-            # Extrair dados da conta
-            extracted_data = self.vision_processor.extract_bill_data_with_vision(
-                image_url, ai_model, max_tokens, 0.3
+            # Usar GPT-4o para processar a imagem diretamente
+            prompt = """Analise esta imagem de conta de energia elétrica e extraia os seguintes dados:
+            - Valor da conta (apenas números)
+            - Nome do cliente
+            - Endereço completo
+            - Cidade e estado
+            - Concessionária/distribuidora
+            - Consumo em kWh
+            
+            Responda apenas com os dados extraídos em formato JSON, sem explicações adicionais."""
+            
+            response = self.openai_client.chat.completions.create(
+                model=ai_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}}
+                        ]
+                    }
+                ],
+                max_tokens=max_tokens,
+                temperature=0.3  # Baixa temperatura para extração precisa
             )
             
-            if not extracted_data.get('success'):
-                return self._handle_image_error(phone_number, "Não consegui ler os dados da conta")
+            extracted_text = response.choices[0].message.content
             
-            # Gerar resposta final
-            final_response = self.vision_processor.generate_final_conversation_response(
-                extracted_data, ai_model, max_tokens, temperature
-            )
+            # Gerar resposta final personalizada
+            final_response = f"""✅ Analisei sua conta de energia!
+
+Dados extraídos:
+{extracted_text}
+
+Agora vou buscar as melhores opções de energia solar para você. Me informe sua cidade e estado para encontrar as promoções disponíveis na sua região."""
             
             # Enviar resposta
             whatsapp_result = self._send_whatsapp_message(phone_number, final_response)
@@ -196,12 +222,9 @@ class AIConversationHandler:
                 # Salvar contexto completo
                 self.conversation_context.save_context(
                     phone_number,
-                    extracted_data=extracted_data,
-                    conversation_completed=True
+                    extracted_data={"raw_text": extracted_text},
+                    conversation_completed=False  # Ainda precisa da localização
                 )
-                
-                # Persistir no Supabase
-                self._save_to_supabase(phone_number, extracted_data, ai_model)
                 
                 return {
                     "success": True,
@@ -211,9 +234,8 @@ class AIConversationHandler:
                     "model_used": ai_model,
                     "has_media": True,
                     "media_processed": True,
-                    "extracted_data": extracted_data,
-                    "conversation_completed": True,
-                    "supabase_saved": True # Indica que a chamada para salvar foi feita
+                    "extracted_data": {"raw_text": extracted_text},
+                    "conversation_completed": False
                 }
             else:
                 return {
@@ -222,13 +244,45 @@ class AIConversationHandler:
                     "ai_response": final_response,
                     "phone_number": phone_number,
                     "has_media": True,
-                    "media_processed": True,
-                    "extracted_data": extracted_data
+                    "media_processed": True
                 }
                 
         except Exception as e:
             logger.error(f"💥 Erro no processamento da imagem: {str(e)}")
             return self._handle_image_error(phone_number, f"Erro interno: {str(e)}")
+    
+    def _get_whatsapp_media_url(self, media_id: str) -> Optional[str]:
+        """Obter URL da mídia do WhatsApp."""
+        try:
+            # Primeiro, obter informações da mídia
+            media_info_url = f"https://graph.facebook.com/v18.0/{media_id}"
+            headers = {"Authorization": f"Bearer {self.whatsapp_token}"}
+            
+            response = requests.get(media_info_url, headers=headers)
+            if response.status_code != 200:
+                logger.error(f"Erro ao obter info da mídia: {response.status_code}")
+                return None
+            
+            media_info = response.json()
+            media_url = media_info.get("url")
+            
+            if not media_url:
+                return None
+            
+            # Obter o arquivo da mídia
+            media_response = requests.get(media_url, headers=headers)
+            if media_response.status_code != 200:
+                logger.error(f"Erro ao baixar mídia: {media_response.status_code}")
+                return None
+            
+            # Converter para base64 para usar com OpenAI
+            import base64
+            media_base64 = base64.b64encode(media_response.content).decode()
+            return f"data:image/jpeg;base64,{media_base64}"
+            
+        except Exception as e:
+            logger.error(f"Erro ao obter URL da mídia: {str(e)}")
+            return None
     
     def _process_location_message(
         self, phone_number: str, message: str, media_id: Optional[str],
@@ -394,7 +448,8 @@ class AIConversationHandler:
                 max_tokens=max_tokens,
                 temperature=temperature
             )
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            return content.strip() if content else "Desculpe, não consegui gerar uma resposta."
         except Exception as e:
             logger.error(f"❌ Erro na OpenAI: {str(e)}")
             return "Desculpe, tive um problema técnico. Pode tentar novamente?"

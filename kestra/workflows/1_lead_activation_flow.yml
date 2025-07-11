@@ -395,7 +395,7 @@ tasks:
   - id: log-activation-success
     type: io.kestra.plugin.core.log.Log
     description: "Registra sucesso do envio do template de ativação"
-    runIf: "{{ outputs['send-whatsapp-template'].template_sent == true }}"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent == true }}"
     message: |
       ✅ TEMPLATE DE ATIVAÇÃO ENVIADO COM SUCESSO
       ================================================
@@ -405,7 +405,7 @@ tasks:
       Estado: {{ trigger.body.estado }}
       Cidade: {{ trigger.body.cidade }}
       Valor da Conta: R$ {{ trigger.body.account_value }}
-      Message ID: {{ outputs['send-whatsapp-template'].whatsapp_message_id }}
+      Message ID: {{ outputs['send-whatsapp-template'].vars.whatsapp_message_id }}
       Timestamp: {{ execution.startDate }}
 
       O lead deve receber o template e clicar em "Ativar Perfil" para iniciar a conversa com IA.
@@ -414,7 +414,7 @@ tasks:
   - id: log-activation-error
     type: io.kestra.plugin.core.log.Log
     description: "Registra erro no envio do template"
-    runIf: "{{ outputs['send-whatsapp-template'].template_sent != true }}"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent != true }}"
     level: ERROR
     message: |
       ❌ ERRO NO ENVIO DO TEMPLATE DE ATIVAÇÃO
@@ -427,6 +427,3 @@ tasks:
       Timestamp: {{ execution.startDate }}
 
       Verificar logs do serviço WhatsApp e configurações do template.
-
-
-
