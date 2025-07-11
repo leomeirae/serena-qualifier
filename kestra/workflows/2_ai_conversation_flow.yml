@@ -41,6 +41,9 @@ tasks:
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
     
+    beforeCommands:
+      - pip install kestra python-dotenv requests openai psycopg2-binary
+    
     script: |
       # Importa o handler de conversação
       from scripts.ai_conversation_handler import handle_lead_message

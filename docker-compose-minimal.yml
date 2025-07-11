@@ -115,6 +115,7 @@ services:
       # Caminho padrão para o Docker socket, mais portável que um caminho de usuário específico
       - /var/run/docker.sock:/var/run/docker.sock 
       - ./kestra/workflows:/app/flows
+      - ./scripts:/app/scripts
       - ./kestra-startup.sh:/app/kestra-startup.sh
     env_file:
       - .env
