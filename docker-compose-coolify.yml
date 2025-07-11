@@ -1,0 +1,236 @@
+version: '3.8'
+
+# Configurações específicas para o Coolify
+x-kestra-config: &kestra-config
+  KESTRA_CONFIGURATION: |
+    datasources:
+      postgres:
+        url: jdbc:postgresql://postgres:5432/kestra
+        driverClassName: org.postgresql.Driver
+        username: kestra
+        password: kestra123
+    kestra:
+      repository:
+        type: postgres
+      storage:
+        type: local
+        local:
+          basePath: "/app/storage"
+      queue:
+        type: postgres
+      variables:
+        env-vars-prefix: ""
+    micronaut:
+      server:
+        cors:
+          enabled: true
+          configurations:
+            web:
+              allowed-origins:
+                - "https://kestra.darwinai.com.br"
+                - "https://api.darwinai.com.br"
+                - "https://webhook.darwinai.com.br"
+              allowed-methods:
+                - GET
+                - POST
+                - PUT
+                - DELETE
+                - OPTIONS
+              allowed-headers:
+                - "*"
+              allow-credentials: true
+
+networks:
+  coolify:
+    external: true
+
+volumes:
+  postgres_data:
+  kestra_data:
+  kestra_logs:
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - coolify
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra -d kestra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    networks:
+      - coolify
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Migração do banco de dados
+  kestra-migration:
+    image: kestra/kestra:latest-full
+    command: ["database", "migrate"]
+    user: root
+    environment:
+      <<: *kestra-config
+      # Variáveis do Supabase
+      SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      # Variáveis do OpenAI
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Variáveis do WhatsApp
+      WHATSAPP_TOKEN: "${WHATSAPP_TOKEN}"
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      # Variáveis da API Serena
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+    networks:
+      - coolify
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Kestra com domínio público
+  kestra:
+    image: kestra/kestra:latest-full
+    user: root
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      <<: *kestra-config
+      KESTRA_LOG_LEVEL: INFO
+      JAVA_OPTS: "-server -XX:MaxRAMPercentage=50.0 -Xms256m -Xmx1g"
+      TZ: America/Sao_Paulo
+      # Variáveis do Supabase
+      SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      # Variáveis do OpenAI
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Variáveis do WhatsApp
+      WHATSAPP_TOKEN: "${WHATSAPP_TOKEN}"
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      # Variáveis da API Serena
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+    networks:
+      - coolify
+    depends_on:
+      - kestra-migration
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ui/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kestra.rule=Host(`kestra.darwinai.com.br`)"
+      - "traefik.http.services.kestra.loadbalancer.server.port=8080"
+
+  # Webhook service com domínio público
+  webhook-service:
+    image: python:3.11-slim
+    ports:
+      - "8000:8000"
+    environment:
+      # Configurações do webhook
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      KESTRA_API_URL: "http://kestra:8080"
+      PYTHONPATH: "/app"
+      # Variáveis do Supabase
+      SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      # Variáveis do OpenAI
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Variáveis do WhatsApp
+      WHATSAPP_TOKEN: "${WHATSAPP_TOKEN}"
+      # Variáveis da API Serena
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+    volumes:
+      - ./:/app
+    working_dir: /app
+    networks:
+      - coolify
+    depends_on:
+      kestra:
+        condition: service_healthy
+    restart: unless-stopped
+    command: >
+      sh -c "
+        pip install --no-cache-dir -r requirements.txt &&
+        uvicorn webhook_service:app --host 0.0.0.0 --port 8000 --reload
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webhook.rule=Host(`webhook.darwinai.com.br`)"
+      - "traefik.http.services.webhook.loadbalancer.server.port=8000"
+
+  # API principal com domínio público
+  api-principal:
+    image: python:3.11-slim
+    ports:
+      - "3001:3001"
+    environment:
+      # Configurações da API
+      PYTHONPATH: "/app"
+      # Variáveis do Supabase
+      SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      # Variáveis do OpenAI
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Variáveis do WhatsApp
+      WHATSAPP_TOKEN: "${WHATSAPP_TOKEN}"
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      # Variáveis da API Serena
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+      # Kestra API
+      KESTRA_API_URL: "http://kestra:8080"
+    volumes:
+      - ./:/app
+    working_dir: /app
+    networks:
+      - coolify
+    depends_on:
+      kestra:
+        condition: service_healthy
+    restart: unless-stopped
+    command: >
+      sh -c "
+        pip install --no-cache-dir -r requirements.txt &&
+        uvicorn webhook_service:app --host 0.0.0.0 --port 3001 --reload
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.darwinai.com.br`)"
+      - "traefik.http.services.api.loadbalancer.server.port=3001" 
