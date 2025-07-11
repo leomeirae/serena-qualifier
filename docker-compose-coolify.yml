@@ -29,7 +29,7 @@ x-kestra-config: &kestra-config
               allowed-origins:
                 - "https://kestra.darwinai.com.br"
                 - "https://api.darwinai.com.br"
-                - "https://webhook.darwinai.com.br"
+                - "https://webhookkestra.darwinai.com.br"
               allowed-methods:
                 - GET
                 - POST
@@ -186,7 +186,7 @@ services:
       start_period: 60s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.webhook.rule=Host(`webhook.darwinai.com.br`)"
+      - "traefik.http.routers.webhook.rule=Host(`webhookkestra.darwinai.com.br`)"
       - "traefik.http.services.webhook.loadbalancer.server.port=8000"
 
   # API principal com domínio público
