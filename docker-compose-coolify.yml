@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   coolify:
     external: true
@@ -177,7 +175,6 @@ services:
       KESTRA_API_URL: "http://kestra:8081"
     volumes:
       - ./:/app
-    working_dir: /app
     networks:
       - coolify
     depends_on:
