@@ -90,7 +90,7 @@ services:
   kestra:
     image: kestra/kestra:latest-full
     user: root
-    command: ["kestra", "server", "standalone"]
+    command: ["sh", "-c", "apt-get update && apt-get install -y curl && kestra server standalone"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - kestra_data:/app/storage
@@ -106,7 +106,7 @@ services:
     networks:
       - coolify
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/stats"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
       interval: 30s
       timeout: 15s
       retries: 10
