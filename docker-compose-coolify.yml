@@ -104,11 +104,17 @@ services:
       start_period: 120s
 
   webhook-service:
-    build: .
+    # --- ALTERAÇÕES AQUI ---
+    image: python:3.11-slim  # Voltamos a usar uma imagem pronta
+    volumes:
+      - ./:/app              # Adicionamos o volume para copiar seu código
+    working_dir: /app         # Definimos o diretório de trabalho
+    # -----------------------
     ports:
       - "8000:8000"
     environment:
       KESTRA_API_URL: "http://kestra:8080"
+      PYTHONPATH: "/app"
     depends_on:
       kestra:
         condition: service_healthy
@@ -126,12 +132,18 @@ services:
       start_period: 60s
 
   api-principal:
-    build: .
+    # --- ALTERAÇÕES AQUI ---
+    image: python:3.11-slim  # Voltamos a usar uma imagem pronta
+    volumes:
+      - ./:/app              # Adicionamos o volume para copiar seu código
+    working_dir: /app         # Definimos o diretório de trabalho
+    # -----------------------
     ports:
       - "3001:3001"
     environment:
       KESTRA_API_URL: "http://kestra:8080"
       WEBHOOK_SERVICE_URL: "http://webhook-service:8000"
+      PYTHONPATH: "/app"
     depends_on:
       kestra:
         condition: service_healthy
