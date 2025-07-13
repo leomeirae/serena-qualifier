@@ -104,12 +104,8 @@ services:
       start_period: 120s
 
   webhook-service:
-    # --- ALTERAÇÕES AQUI ---
-    image: python:3.11-slim  # Voltamos a usar uma imagem pronta
-    volumes:
-      - ./:/app              # Adicionamos o volume para copiar seu código
-    working_dir: /app         # Definimos o diretório de trabalho
-    # -----------------------
+    image: python:3.11-slim
+    working_dir: /app
     ports:
       - "8000:8000"
     environment:
@@ -132,12 +128,8 @@ services:
       start_period: 60s
 
   api-principal:
-    # --- ALTERAÇÕES AQUI ---
-    image: python:3.11-slim  # Voltamos a usar uma imagem pronta
-    volumes:
-      - ./:/app              # Adicionamos o volume para copiar seu código
-    working_dir: /app         # Definimos o diretório de trabalho
-    # -----------------------
+    image: python:3.11-slim
+    working_dir: /app
     ports:
       - "3001:3001"
     environment:
