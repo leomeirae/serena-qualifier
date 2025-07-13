@@ -91,8 +91,6 @@ services:
     image: kestra/kestra:latest-full
     user: root
     command: ["kestra", "server", "standalone"]
-    ports:
-      - "8080:8081"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - kestra_data:/app/storage
@@ -121,8 +119,6 @@ services:
   webhook-service:
     image: python:3.11-slim
     working_dir: /app
-    ports:
-      - "8001:8001"
     environment:
       # Configurações do webhook
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
@@ -155,8 +151,6 @@ services:
   api-principal:
     image: python:3.11-slim
     working_dir: /app
-    ports:
-      - "3001:3001"
     environment:
       # Configurações da API
       PYTHONPATH: "/app"
