@@ -32,7 +32,7 @@ x-kestra-config: &kestra-config
               allowed-origins:
                 - "https://kestra.darwinai.com.br"
                 - "https://api.darwinai.com.br"
-                - "https://webhookkestra.darwinai.com.br"
+                - "https://kestrawebhook.darwinai.com.br"
               allowed-methods:
                 - GET
                 - POST
