@@ -1,5 +1,9 @@
 version: '3.8'
 
+networks:
+  coolify:
+    external: true
+
 x-kestra-config: &kestra-config
   KESTRA_CONFIGURATION: |
     datasources:
@@ -53,6 +57,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    networks:
+      - coolify
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kestra -d kestra"]
       interval: 10s
@@ -63,6 +69,8 @@ services:
     image: redis:7-alpine
     command: redis-server --appendonly yes
     restart: unless-stopped
+    networks:
+      - coolify
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -75,6 +83,8 @@ services:
     user: root
     environment:
       <<: *kestra-config
+    networks:
+      - coolify
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,12 +107,18 @@ services:
       - kestra-migration
       - redis
     restart: unless-stopped
+    networks:
+      - coolify
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/ui/"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 120s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kestra.rule=Host(`kestra.darwinai.com.br`)"
+      - "traefik.http.services.kestra.loadbalancer.server.port=8081"
 
   webhook-service:
     image: python:3.11-slim
@@ -118,6 +134,10 @@ services:
       kestra:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - coolify
+    volumes:
+      - ./:/app
     command: >
       sh -c "
         pip install --no-cache-dir -r requirements.txt &&
@@ -129,6 +149,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webhook.rule=Host(`kestrawebhook.darwinai.com.br`)"
+      - "traefik.http.services.webhook.loadbalancer.server.port=8001"
 
   api-principal:
     image: python:3.11-slim
