@@ -110,6 +110,8 @@ services:
     ports:
       - "8001:8001"
     environment:
+      # Configurações do webhook
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
       KESTRA_API_URL: "http://kestra:8081"
       PYTHONPATH: "/app"
     depends_on:
@@ -119,7 +121,7 @@ services:
     command: >
       sh -c "
         pip install --no-cache-dir -r requirements.txt &&
-        uvicorn webhook_service:app --host 0.0.0.0 --port 8001
+        uvicorn webhook_service:app --host 0.0.0.0 --port 8001 --reload
       "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/"]
@@ -134,9 +136,26 @@ services:
     ports:
       - "3001:3001"
     environment:
-      KESTRA_API_URL: "http://kestra:8081"
-      WEBHOOK_SERVICE_URL: "http://webhook-service:8001"
+      # Configurações da API
       PYTHONPATH: "/app"
+      # Variáveis do Supabase
+      SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      # Variáveis do OpenAI
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Variáveis do WhatsApp
+      WHATSAPP_TOKEN: "${WHATSAPP_TOKEN}"
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      # Variáveis da API Serena
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+      # Kestra API
+      KESTRA_API_URL: "http://kestra:8081"
+    volumes:
+      - ./:/app
+    working_dir: /app
+    networks:
+      - coolify
     depends_on:
       kestra:
         condition: service_healthy
@@ -152,3 +171,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.darwinai.com.br`)"
+      - "traefik.http.services.api.loadbalancer.server.port=3001" 
