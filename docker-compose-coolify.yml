@@ -100,6 +100,7 @@ services:
       KESTRA_LOG_LEVEL: INFO
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=75.0 -Xms512m -Xmx2g"
       TZ: America/Sao_Paulo
+      MICRONAUT_ENVIRONMENTS: "override"
     depends_on:
       - kestra-migration
       - redis
@@ -107,11 +108,11 @@ services:
     networks:
       - coolify
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:8081/ || exit 1"]
+      test: ["CMD", "sh", "-c", "nc -z localhost 8081 || exit 1"]
       interval: 30s
       timeout: 15s
-      retries: 10
-      start_period: 180s
+      retries: 15
+      start_period: 240s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.kestra.rule=Host(`kestra.darwinai.com.br`)"
