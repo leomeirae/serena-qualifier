@@ -10,8 +10,8 @@ triggers:
 
 variables:
   # Configurações do ambiente
-  phone_number_id: "{{ envs.whatsapp_phone_number_id }}"
-  template_name:   "{{ envs.whatsapp_welcome_template_name }}"
+  phone_number_id: "{{ envs.WHATSAPP_PHONE_NUMBER_ID }}"
+  template_name:   "{{ envs.WHATSAPP_WELCOME_TEMPLATE_NAME }}"
 
 tasks:
   # DEBUG: Verificar contexto disponível
@@ -43,7 +43,7 @@ tasks:
       import psycopg2
 
       # String de conexão segura
-      db_connection_string = "{{ envs.db_connection_string }}"
+      db_connection_string = "{{ secret('SECRET_DB_CONNECTION_STRING') }}"
 
       # Dados do lead
       lead_data = {
@@ -361,9 +361,9 @@ tasks:
     beforeCommands:
       - pip install kestra python-dotenv requests
     
-    env:
-      WHATSAPP_API_TOKEN:       "{{ secret('WHATSAPP_API_TOKEN') }}"
-      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+          env:
+        WHATSAPP_API_TOKEN:       "{{ secret('WHATSAPP_API_TOKEN') }}"
+        WHATSAPP_PHONE_NUMBER_ID: "{{ envs.WHATSAPP_PHONE_NUMBER_ID }}"
       
     script: |
       from kestra import Kestra
@@ -377,7 +377,7 @@ tasks:
       result = send_activation_template(
           phone_number    = lead_data["whatsapp"],
           lead_name       = lead_data["name"],
-          phone_number_id = "{{ envs.whatsapp_phone_number_id }}",
+          phone_number_id = "{{ envs.WHATSAPP_PHONE_NUMBER_ID }}",
           template_name   = "{{ vars.template_name }}"
       )
 
