@@ -79,19 +79,8 @@ services:
       timeout: 5s
       retries: 5
 
-  kestra-migration:
-    image: kestra/kestra:latest-full
-    command: ["./kestra", "database", "migrate"]
-    user: root
-    environment:
-      <<: *kestra-config
-    networks:
-      - coolify
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # Exclude from healthchecks (Coolify feature) - runs once and exits
-    exclude_from_hc: true
+  # Migration is handled automatically by standalone server
+  # Removing separate migration service to avoid restart loops
 
   kestra:
     image: kestra/kestra:latest-full
@@ -107,8 +96,8 @@ services:
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=75.0 -Xms512m -Xmx2g"
       TZ: America/Sao_Paulo
     depends_on:
-      - kestra-migration
-      - postgres
+      postgres:
+        condition: service_started
     restart: unless-stopped
     networks:
       - coolify
