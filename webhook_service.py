@@ -316,7 +316,13 @@ async def verify_webhook(request: Request):
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge")
         
-        logger.info(f"🔐 Verificação webhook: mode={mode}, token={token}")
+        logger.info(f"🔐 Verificação webhook: mode={mode}, token={token}, challenge={challenge}")
+        logger.info(f"🔐 Token esperado: {WHATSAPP_VERIFY_TOKEN}")
+        
+        # Verificar se todos os parâmetros foram recebidos
+        if not mode or not token or not challenge:
+            logger.error(f"❌ Parâmetros faltando: mode={mode}, token={token}, challenge={challenge}")
+            raise HTTPException(status_code=400, detail="Parâmetros hub.mode, hub.verify_token e hub.challenge são obrigatórios")
         
         # Verificar se é o token correto
         if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
@@ -326,8 +332,14 @@ async def verify_webhook(request: Request):
             logger.warning(f"❌ Token inválido: esperado={WHATSAPP_VERIFY_TOKEN}, recebido={token}")
             raise HTTPException(status_code=403, detail="Token inválido")
             
+    except HTTPException:
+        # Re-raise HTTPException para não ser capturada pelo except genérico
+        raise
     except Exception as e:
         logger.error(f"💥 Erro na verificação: {str(e)}")
+        logger.error(f"💥 Tipo do erro: {type(e)}")
+        import traceback
+        logger.error(f"💥 Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Erro interno")
 
 
