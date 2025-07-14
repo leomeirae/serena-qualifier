@@ -19,6 +19,9 @@ x-kestra-config: &kestra-config
           basePath: "/app/storage"
       queue:
         type: postgres
+      tasks:
+        tmpDir:
+          path: /tmp/kestra-wd/tmp
       variables:
         env-vars-prefix: ""
     micronaut:
@@ -78,7 +81,7 @@ services:
 
   kestra-migration:
     image: kestra/kestra:latest-full
-    command: ["kestra", "server", "database", "migrate"]
+    command: ["./kestra", "database", "migrate"]
     user: root
     environment:
       <<: *kestra-config
@@ -87,28 +90,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Exclude from healthchecks (Coolify feature) - runs once and exits
+    exclude_from_hc: true
 
   kestra:
     image: kestra/kestra:latest-full
     user: root
-    command: ["kestra", "server", "standalone"]
+    command: ["./kestra", "server", "standalone"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - kestra_data:/app/storage
+      - /tmp/kestra-wd:/tmp/kestra-wd
     environment:
       <<: *kestra-config
       KESTRA_LOG_LEVEL: INFO
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=75.0 -Xms512m -Xmx2g"
       TZ: America/Sao_Paulo
-      MICRONAUT_ENVIRONMENTS: "override"
     depends_on:
       - kestra-migration
-      - redis
+      - postgres
     restart: unless-stopped
     networks:
       - coolify
     healthcheck:
-      test: ["CMD", "sh", "-c", "nc -z localhost 8081 || exit 1"]
+      test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:8081/ || exit 1"]
       interval: 30s
       timeout: 15s
       retries: 15
