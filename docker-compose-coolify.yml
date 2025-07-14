@@ -24,12 +24,6 @@ x-kestra-config: &kestra-config
           path: /tmp/kestra-wd/tmp
       variables:
         env-vars-prefix: ""
-      security:
-        type: basic
-        basic:
-          username: admin
-          password: SerenaKestra2025!
-          realm: "Kestra Admin Access"
     micronaut:
       server:
         port: 8081
