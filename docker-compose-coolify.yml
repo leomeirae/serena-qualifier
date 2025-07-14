@@ -43,6 +43,7 @@ x-kestra-config: &kestra-config
                 - "https://kestra.darwinai.com.br"
                 - "https://api.darwinai.com.br"
                 - "https://kestrawebhook.darwinai.com.br"
+                - "https://www.saasia.com.br"
               allowed-methods:
                 - GET
                 - POST
