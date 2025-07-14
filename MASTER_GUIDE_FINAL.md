@@ -49,7 +49,7 @@ Implementar um sistema automatizado para a captura, interação, qualificação 
 O sistema opera com uma arquitetura de **dois workflows Kestra + serviço webhook** para garantir robustez e clareza.
 
 1. **Fluxo de Ativação**: Responsável unicamente pela captura do lead e pelo envio da primeira mensagem de ativação.  
-2. **Webhook Service**: Ponte entre WhatsApp Business API e Kestra (FastAPI na porta 8000).
+2. **Webhook Service**: Ponte entre WhatsApp Business API e Kestra (kestrawebhook.darwinai.com.br).
 3. **Fluxo de Conversação**: Responsável por toda a interação subsequente, delegando a "inteligência" para o ai_conversation_handler.py.
 
 ### **Diagrama da Arquitetura**
@@ -61,7 +61,7 @@ sequenceDiagram
     participant LP as Landing Page (Next.js)  
     participant Kestra1 as Kestra (Fluxo Ativação)  
     participant WhatsApp as WhatsApp API  
-    participant WebhookSvc as Webhook Service (FastAPI:8000)  
+    participant WebhookSvc as Webhook Service (kestrawebhook.darwinai.com.br)  
     participant Kestra2 as Kestra (Fluxo Conversa)  
     participant AIHandler as ai_conversation_handler.py  
     participant Supabase  
@@ -317,7 +317,7 @@ Este script exemplifica o fluxo ideal para guiar desenvolvimento e testes.
 | **SUPABASE\_KEY** | conversation\_tool | Chave de API (public anon key) do Supabase. | eyJhbGci... |
 | **OPENAI\_API\_KEY** | assistant\_manager | Chave de API da OpenAI para o modelo de linguagem. | sk-proj-... |
 | **OPENAI\_ASSISTANT\_ID** | assistant\_manager | ID do Assistant OpenAI (criado manualmente). | asst-... |
-| **KESTRA\_API\_URL** | serena-landing-page | URL da instância Kestra para acionar webhooks. | http://localhost:8080 |
+| **KESTRA\_API\_URL** | serena-landing-page | URL da instância Kestra para acionar webhooks. | https://kestra.darwinai.com.br |
 
 ### **Especificações Técnicas da API WhatsApp v23.0**
 
@@ -365,7 +365,10 @@ A suíte de testes está na pasta /tests.
 ### **Guia de Deploy e Validação**
 
 * **Deploy**: docker-compose \-f docker-compose-minimal.yml up \-d \--build  
-* **Validação (Health Check)**: Após o deploy, verificar curl http://localhost:8000/health. Cada serviço deve expor este endpoint.  
+* **Validação (Health Check)**: Após o deploy, verificar os endpoints de saúde dos serviços:
+  - Kestra: `curl https://kestra.darwinai.com.br/`
+  - API Principal: `curl https://api.darwinai.com.br/health`
+  - Webhook Service: `curl https://kestrawebhook.darwinai.com.br/`  
 * **Rollback de Código**: docker-compose \-f docker-compose-minimal.yml down && git checkout \<commit\_anterior\> && docker-compose \-f docker-compose-minimal.yml up \-d \--build  
 * **Rollback de Banco de Dados**: Restaurar a partir do último backup válido do Supabase. Procedimentos de migração devem usar ferramentas como [Flyway](https://flywaydb.org/) ou [Alembic](https://alembic.sqlalchemy.org/en/latest/) e ter scripts de undo correspondentes.
 

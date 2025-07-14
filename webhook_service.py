@@ -22,6 +22,7 @@ import sys
 import json
 import logging
 import requests
+import httpx
 import hashlib
 import hmac
 from datetime import datetime
@@ -70,6 +71,7 @@ WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "serena_webhook_verif
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 KESTRA_BASE_URL = os.getenv("KESTRA_API_URL", "http://kestra:8081")
 KESTRA_WEBHOOK_URL = f"{KESTRA_BASE_URL}/api/v1/executions/webhook/serena.production/2_ai_conversation_flow/converse_production_lead"
+CHATWOOT_WEBHOOK_URL = os.getenv("CHATWOOT_WEBHOOK_URL")
 
 class WhatsAppMessage(BaseModel):
     """Modelo para mensagem do WhatsApp"""
@@ -248,6 +250,45 @@ async def trigger_kestra_workflow(message: WhatsAppMessage) -> Dict[str, Any]:
         }
 
 
+async def forward_to_chatwoot(payload: bytes, headers: dict):
+    """
+    Encaminha o payload bruto do webhook para o Chatwoot.
+    
+    Args:
+        payload: Payload bruto do webhook WhatsApp
+        headers: Headers da requisição original
+    """
+    if not CHATWOOT_WEBHOOK_URL:
+        logger.warning("⚠️ CHATWOOT_WEBHOOK_URL não configurado. Pulando encaminhamento.")
+        return
+
+    try:
+        # Replicar os cabeçalhos relevantes do WhatsApp
+        forward_headers = {
+            'Content-Type': headers.get('Content-Type', 'application/json'),
+            'X-Hub-Signature-256': headers.get('X-Hub-Signature-256', '')
+        }
+
+        logger.info(f"📤 Encaminhando webhook para o Chatwoot: {CHATWOOT_WEBHOOK_URL}")
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                CHATWOOT_WEBHOOK_URL,
+                content=payload,
+                headers=forward_headers
+            )
+
+        if 200 <= response.status_code < 300:
+            logger.info(f"✅ Webhook encaminhado para Chatwoot com sucesso. Status: {response.status_code}")
+        else:
+            logger.error(f"❌ Erro ao encaminhar para Chatwoot: {response.status_code} - {response.text}")
+
+    except httpx.TimeoutException:
+        logger.error("⏱️ Timeout ao encaminhar para Chatwoot")
+    except Exception as e:
+        logger.error(f"💥 Erro inesperado no encaminhamento para Chatwoot: {str(e)}")
+
+
 @app.get("/")
 async def health_check():
     """Health check endpoint"""
@@ -256,7 +297,9 @@ async def health_check():
         "service": "whatsapp-webhook-service",
         "version": "1.0.0",
         "timestamp": datetime.now().isoformat(),
-        "kestra_url": KESTRA_WEBHOOK_URL
+        "kestra_url": KESTRA_WEBHOOK_URL,
+        "chatwoot_url": CHATWOOT_WEBHOOK_URL,
+        "chatwoot_enabled": bool(CHATWOOT_WEBHOOK_URL)
     }
 
 
@@ -298,6 +341,10 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         # Ler payload
         payload = await request.body()
+        
+        # Encaminhar para Chatwoot em background (se configurado)
+        if CHATWOOT_WEBHOOK_URL:
+            background_tasks.add_task(forward_to_chatwoot, payload, dict(request.headers))
         
         # Verificar assinatura (se configurada)
         signature = request.headers.get("X-Hub-Signature-256", "")

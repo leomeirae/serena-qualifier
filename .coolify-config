@@ -1,0 +1,9 @@
+# Configuração do Coolify MCP Server
+COOLIFY_BASE_URL=https://coolify.darwinai.com.br
+COOLIFY_TOKEN=Q2VEjCscl4DQN2quZLhYKuNgKRMVpV8TbDtjzlUs7ed62b2a
+
+# Para obter seu token do Coolify:
+# 1. Acesse https://coolify.darwinai.com.br
+# 2. Vá em Settings → API Tokens
+# 3. Crie um novo token com as permissões necessárias
+# 4. Substitua YOUR_COOLIFY_TOKEN_HERE pelo token gerado 

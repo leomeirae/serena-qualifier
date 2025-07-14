@@ -137,6 +137,7 @@ services:
       # Configurações do webhook
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
       KESTRA_API_URL: "http://kestra:8081"
+      CHATWOOT_WEBHOOK_URL: "${CHATWOOT_WEBHOOK_URL}"
       PYTHONPATH: "/app"
     depends_on:
       kestra:
