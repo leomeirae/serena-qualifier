@@ -10,8 +10,8 @@ triggers:
 
 variables:
   # Configurações do ambiente
-  phone_number_id: "{{ envs.WHATSAPP_PHONE_NUMBER_ID }}"
-  template_name:   "{{ envs.WHATSAPP_WELCOME_TEMPLATE_NAME }}"
+  phone_number_id: "{{ envs.whatsapp_phone_number_id }}"
+  template_name:   "{{ envs.whatsapp_welcome_template_name }}"
 
 tasks:
   # DEBUG: Verificar contexto disponível
@@ -356,6 +356,36 @@ tasks:
 
         if __name__ == "__main__":
             main()
+    
+    # --- The following blocks are now correctly indented ---
+    beforeCommands:
+      - pip install kestra python-dotenv requests
+    
+    env:
+      WHATSAPP_API_TOKEN:       "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+      
+    script: |
+      from kestra import Kestra
+      from scripts.send_whatsapp_template import send_activation_template
+
+      lead_data = {
+          "name":          "{{ trigger.body.name }}",
+          "whatsapp":      "{{ trigger.body.whatsapp }}"
+      }
+
+      result = send_activation_template(
+          phone_number    = lead_data["whatsapp"],
+          lead_name       = lead_data["name"],
+          phone_number_id = "{{ envs.whatsapp_phone_number_id }}",
+          template_name   = "{{ vars.template_name }}"
+      )
+
+      Kestra.outputs({
+          "template_sent":       result.get("success", False),
+          "whatsapp_message_id": result.get("message_id", "N/A"),
+          "lead_phone":          lead_data["whatsapp"]
+      })
 
   # Tarefa 2: Log de sucesso
   - id: log-activation-success
