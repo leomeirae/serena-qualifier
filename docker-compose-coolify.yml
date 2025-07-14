@@ -171,7 +171,6 @@ services:
       # Variáveis do OpenAI
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       # Variáveis do WhatsApp
-      WHATSAPP_TOKEN: "${WHATSAPP_TOKEN}"
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
       # Variáveis da API Serena
       SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
