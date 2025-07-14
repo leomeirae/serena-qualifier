@@ -21,9 +21,7 @@ tasks:
     description: "Processa mensagem do lead e envia primeira resposta da IA"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: serena/kestra-python-runner:latest
-      pullPolicy: NEVER
-      networkMode: serena-qualifier_kestra-network
+      image: python:3.11-slim
     
     inputFiles:
       scripts/__init__.py: |

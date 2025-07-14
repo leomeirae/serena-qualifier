@@ -32,9 +32,7 @@ tasks:
     description: "Salva dados iniciais do lead no Supabase"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: serena/kestra-python-runner:latest
-      pullPolicy: NEVER
-      networkMode: serena-qualifier_kestra-network
+      image: python:3.11-slim
     
     beforeCommands:
       - pip install kestra psycopg2-binary
@@ -114,9 +112,7 @@ tasks:
     description: "Envia template de ativação WhatsApp para o lead"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: serena/kestra-python-runner:latest
-      pullPolicy: NEVER
-      networkMode: serena-qualifier_kestra-network
+      image: python:3.11-slim
     
     inputFiles:
       scripts/__init__.py: |
