@@ -27,6 +27,8 @@ x-kestra-config: &kestra-config
     micronaut:
       server:
         port: 8081
+        proxy-target-header: "X-Forwarded-Proto"
+        proxy-forwarded-header: "X-Forwarded-For"
         cors:
           enabled: true
           configurations:
@@ -95,6 +97,9 @@ services:
       KESTRA_LOG_LEVEL: INFO
       JAVA_OPTS: "-server -XX:MaxRAMPercentage=75.0 -Xms512m -Xmx2g"
       TZ: America/Sao_Paulo
+      # Configurações para proxy reverso HTTPS
+      MICRONAUT_SERVER_PROXY_TARGET_HEADER: "X-Forwarded-Proto"
+      MICRONAUT_SERVER_PROXY_FORWARDED_HEADER: "X-Forwarded-For"
     depends_on:
       postgres:
         condition: service_started
@@ -111,6 +116,13 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.kestra.rule=Host(`kestra.darwinai.com.br`)"
       - "traefik.http.services.kestra.loadbalancer.server.port=8081"
+      - "traefik.http.routers.kestra.middlewares=kestra-headers"
+      - "traefik.http.middlewares.kestra-headers.headers.customRequestHeaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.kestra-headers.headers.customRequestHeaders.X-Forwarded-Host=kestra.darwinai.com.br"
+      - "traefik.http.middlewares.kestra-headers.headers.customRequestHeaders.X-Forwarded-Port=443"
+      - "traefik.http.middlewares.kestra-headers.headers.customResponseHeaders.X-Frame-Options=DENY"
+      - "traefik.http.middlewares.kestra-headers.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.kestra-headers.headers.customResponseHeaders.Strict-Transport-Security=max-age=31536000; includeSubDomains"
 
   webhook-service:
     image: python:3.11-slim
