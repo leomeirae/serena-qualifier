@@ -93,6 +93,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - kestra_data:/app/storage
       - /tmp/kestra-wd:/tmp/kestra-wd
+      - ./scripts:/app/scripts
     environment:
       <<: *kestra-config
       KESTRA_LOG_LEVEL: INFO

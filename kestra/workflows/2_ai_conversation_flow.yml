@@ -27,10 +27,10 @@ tasks:
       scripts/__init__.py: |
         # Scripts package for Serena Qualifier
         # Contains AI agent tools and integrations
-      scripts/ai_conversation_handler.py: "{{ read('scripts/ai_conversation_handler.py') }}"
-      scripts/location_extractor.py: "{{ read('scripts/location_extractor.py') }}"
-      scripts/conversation_context.py: "{{ read('scripts/conversation_context.py') }}"
-      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+      scripts/ai_conversation_handler.py: "{{ read('/app/scripts/ai_conversation_handler.py') }}"
+      scripts/location_extractor.py: "{{ read('/app/scripts/location_extractor.py') }}"
+      scripts/conversation_context.py: "{{ read('/app/scripts/conversation_context.py') }}"
+      scripts/serena_api.py: "{{ read('/app/scripts/serena_api.py') }}"
     
     # --- The following blocks are now correctly indented ---
     env:
