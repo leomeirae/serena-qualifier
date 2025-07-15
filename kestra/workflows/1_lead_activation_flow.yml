@@ -372,7 +372,7 @@ tasks:
       - pip install kestra python-dotenv requests
     
     env:
-      WHATSAPP_API_TOKEN:       "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_API_TOKEN:       "{{ secret('SECRET_WHATSAPP_API_TOKEN') }}"
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
       
     script: |

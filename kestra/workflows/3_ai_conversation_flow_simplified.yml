@@ -1,0 +1,235 @@
+id: 3_ai_conversation_flow_simplified
+namespace: serena.production
+description: "Workflow simplificado de conversação com IA - Usa plugin nativo OpenAI do Kestra"
+
+triggers:
+  - id: converse_production_lead_v2
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_production_lead_v2
+    description: "Recebe mensagens do lead para conversa simplificada com IA"
+
+variables:
+  # Configurações do modelo de IA
+  ai_model: "gpt-4o-mini"
+  max_tokens: 300
+  temperature: 0.7
+  
+  # Prompt personalizado para qualificação de leads
+  ai_prompt: |
+    Você é Serena, assistente virtual da Serena Energia. 
+    
+    Sua função é:
+    1. Receber mensagens de leads interessados em energia solar
+    2. Fazer perguntas qualificadoras sobre localização, conta de luz e necessidades
+    3. Ser amigável, profissional e focada em economia e sustentabilidade
+    
+    Contexto da empresa:
+    - Especializada em instalação de sistemas solares fotovoltaicos
+    - Atende residências e empresas
+    - Oferece análise de viabilidade e financiamento
+    - Foco em economia na conta de luz
+    
+    Mensagem do lead: "{{ trigger.body.message }}"
+    
+    Responda de forma natural e amigável, fazendo uma pergunta sobre a cidade/estado do lead para verificar se atendemos a região e prosseguir com a qualificação.
+
+tasks:
+  # Tarefa: Gerar resposta da IA usando plugin nativo
+  - id: generate-ai-response
+    type: io.kestra.plugin.openai.ChatCompletion
+    description: "Gera resposta inteligente usando plugin OpenAI nativo"
+    apiKey: "{{ secret('SECRET_OPENAI_API_KEY') }}"
+    model: "{{ vars.ai_model }}"
+    prompt: "{{ vars.ai_prompt }}"
+    maxTokens: "{{ vars.max_tokens }}"
+    temperature: "{{ vars.temperature }}"
+    clientTimeout: 30
+
+  # Tarefa: Enviar mensagem WhatsApp
+  - id: send-whatsapp-message
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envia resposta da IA via WhatsApp"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    env:
+      WHATSAPP_API_TOKEN: "{{ secret('SECRET_WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+      SERENA_API_TOKEN: "{{ secret('SECRET_SERENA_API_TOKEN') }}"
+      SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
+    
+    beforeCommands:
+      - pip install requests
+    
+    script: |
+      import requests
+      import json
+      import os
+      
+      # Dados do trigger
+      phone_number = '{{ trigger.body.phone }}'
+      ai_response = '''{{ outputs['generate-ai-response'].choices[0].message.content }}'''
+      
+      # Configuração WhatsApp API (v23.0)
+      whatsapp_token = os.getenv('WHATSAPP_API_TOKEN')
+      whatsapp_phone_id = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
+      
+      # Validar variáveis obrigatórias
+      if not whatsapp_token or not whatsapp_phone_id:
+          error_msg = "Variáveis WHATSAPP_API_TOKEN ou WHATSAPP_PHONE_NUMBER_ID não configuradas"
+          print(f"❌ {error_msg}")
+          with open('/tmp/outputs.json', 'w') as f:
+              json.dump({
+                  'success': False,
+                  'error': error_msg,
+                  'phone_number': phone_number
+              }, f)
+          raise ValueError(error_msg)
+      
+      url = f"https://graph.facebook.com/v23.0/{whatsapp_phone_id}/messages"
+      headers = {
+          'Authorization': f"Bearer {whatsapp_token}",
+          'Content-Type': 'application/json'
+      }
+      
+      # Payload da mensagem
+      payload = {
+          "messaging_product": "whatsapp",
+          "to": phone_number,
+          "type": "text",
+          "text": {
+              "body": ai_response
+          }
+      }
+      
+      # Enviar mensagem
+      try:
+          print(f"📤 Enviando mensagem para {phone_number}...")
+          response = requests.post(url, headers=headers, json=payload)
+          response.raise_for_status()
+          
+          result = response.json()
+          message_id = result.get('messages', [{}])[0].get('id', 'unknown')
+          
+          print(f"✅ Mensagem enviada com sucesso!")
+          print(f"📱 WhatsApp Message ID: {message_id}")
+          print(f"📞 Para: {phone_number}")
+          print(f"🤖 Resposta: {ai_response}")
+          
+          # Output para próximos tasks
+          with open('/tmp/outputs.json', 'w') as f:
+              json.dump({
+                  'success': True,
+                  'whatsapp_message_id': message_id,
+                  'ai_response': ai_response,
+                  'phone_number': phone_number
+              }, f)
+              
+      except requests.RequestException as e:
+          print(f"❌ Erro ao enviar mensagem WhatsApp: {str(e)}")
+          if hasattr(e, 'response') and e.response is not None:
+              print(f"📄 Resposta da API: {e.response.text}")
+          with open('/tmp/outputs.json', 'w') as f:
+              json.dump({
+                  'success': False,
+                  'error': str(e),
+                  'phone_number': phone_number
+              }, f)
+          raise
+
+  # Tarefa: Salvar lead no banco (opcional)
+  - id: save-lead-data
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Salva dados do lead no banco de dados"
+    runIf: "{{ outputs['send-whatsapp-message'].success }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    inputFiles:
+      scripts/save_lead_to_supabase.py: "{{ read('scripts/save_lead_to_supabase.py') }}"
+    
+    env:
+      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
+      SERENA_API_TOKEN: "{{ secret('SECRET_SERENA_API_TOKEN') }}"
+      SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
+    
+    beforeCommands:
+      - pip install psycopg2-binary supabase requests
+    
+    script: |
+      import os
+      import sys
+      import json
+      
+      # Importar script do projeto
+      sys.path.append('/tmp/input/files')
+      from scripts.save_lead_to_supabase import save_lead_message
+      
+      # Dados do lead
+      phone_number = '{{ trigger.body.phone }}'
+      message = '{{ trigger.body.message }}'
+      ai_response = '''{{ outputs['generate-ai-response'].choices[0].message.content }}'''
+      
+      # Salvar no banco
+      try:
+          result = save_lead_message(
+              phone_number=phone_number,
+              message=message,
+              ai_response=ai_response,
+              status='ai_conversation_initiated'
+          )
+          print(f"✅ Lead salvo no banco: {result}")
+          
+          # Output para próximos tasks
+          with open('/tmp/outputs.json', 'w') as f:
+              json.dump({
+                  'success': True,
+                  'lead_saved': True,
+                  'database_result': result
+              }, f)
+              
+      except Exception as e:
+          print(f"⚠️ Erro ao salvar lead: {str(e)}")
+          # Não falha o workflow por erro de banco
+          with open('/tmp/outputs.json', 'w') as f:
+              json.dump({
+                  'success': True,
+                  'lead_saved': False,
+                  'error': str(e)
+              }, f)
+
+  # Log de sucesso
+  - id: log-success
+    type: io.kestra.plugin.core.log.Log
+    description: "Log de sucesso da conversa"
+    runIf: "{{ outputs['send-whatsapp-message'].success }}"
+    message: |
+      ✅ CONVERSA COM IA INICIADA COM SUCESSO (Plugin Nativo)
+      =========================================================
+      Phone: {{ trigger.body.phone }}
+      Message: {{ trigger.body.message }}
+      AI Response: {{ outputs['generate-ai-response'].choices[0].message.content }}
+      WhatsApp Message ID: {{ outputs['send-whatsapp-message'].whatsapp_message_id }}
+      Model: {{ vars.ai_model }}
+      Tokens Used: {{ outputs['generate-ai-response'].usage.total_tokens }}
+      Lead Saved: {{ outputs['save-lead-data'].lead_saved }}
+      Timestamp: {{ execution.startDate }}
+      
+      🔗 Webhook URL: https://kestra.darwinai.com.br/api/v1/executions/webhook/serena.production/converse_production_lead_v2
+
+  # Log de erro
+  - id: log-error
+    type: io.kestra.plugin.core.log.Log
+    description: "Log de erro no processamento"
+    runIf: "{{ !outputs['send-whatsapp-message'].success }}"
+    level: ERROR
+    message: |
+      ❌ ERRO NO PROCESSAMENTO DA CONVERSA
+      ===================================
+      Phone: {{ trigger.body.phone }}
+      Message: {{ trigger.body.message }}
+      Error: {{ outputs['send-whatsapp-message'].error }}
+      Model: {{ vars.ai_model }}
+      Timestamp: {{ execution.startDate }} 

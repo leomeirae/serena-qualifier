@@ -18,7 +18,7 @@ tasks:
   # Tarefa: Gerar resposta com IA usando plugin nativo
   - id: ai_response_generation
     type: io.kestra.plugin.openai.ChatCompletion
-    apiKey: "{{ secret('OPENAI_API_KEY') }}"
+    apiKey: "{{ secret('SECRET_OPENAI_API_KEY') }}"
     model: "gpt-4o-mini"
     prompt: |
       Você é Serena, assistente virtual da empresa Serena, especializada em qualificação de leads imobiliários.
@@ -47,10 +47,10 @@ tasks:
       scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
     
     env:
-      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
-      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
+      OPENAI_API_KEY: "{{ secret('SECRET_OPENAI_API_KEY') }}"
+      WHATSAPP_API_TOKEN: "{{ secret('SECRET_WHATSAPP_API_TOKEN') }}"
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
-      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+      SERENA_API_TOKEN: "{{ secret('SECRET_SERENA_API_TOKEN') }}"
       SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
     

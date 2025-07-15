@@ -102,6 +102,20 @@ services:
       # Configurações para proxy reverso HTTPS
       MICRONAUT_SERVER_PROXY_TARGET_HEADER: "X-Forwarded-Proto"
       MICRONAUT_SERVER_PROXY_FORWARDED_HEADER: "X-Forwarded-For"
+      # Secrets para função secret() nos workflows
+      SECRET_OPENAI_API_KEY: "${SECRET_OPENAI_API_KEY}"
+      SECRET_WHATSAPP_API_TOKEN: "${SECRET_WHATSAPP_API_TOKEN}"
+      SECRET_SERENA_API_TOKEN: "${SECRET_SERENA_API_TOKEN}"
+      SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      SECRET_DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+      # Variáveis de environment para workflows
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
+      WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
     depends_on:
       postgres:
         condition: service_started
