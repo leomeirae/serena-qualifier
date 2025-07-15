@@ -36,15 +36,58 @@ tasks:
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
       WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
-      WHATSAPP_PHONE_NUMBER_ID: "{{ env.WHATSAPP_PHONE_NUMBER_ID }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
-      SERENA_API_BASE_URL: "{{ env.SERENA_API_BASE_URL }}"
-      SECRET_DB_CONNECTION_STRING: "{{ env.SECRET_DB_CONNECTION_STRING }}"
+      SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
+      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
+      SUPABASE_URL: "{{ envs.supabase_url }}"
+      SUPABASE_ANON_KEY: "{{ secret('SUPABASE_ANON_KEY') }}"
     
     beforeCommands:
-      - pip install kestra python-dotenv requests openai psycopg2-binary python-json-logger supabase
+      - pip install --upgrade pip
+      - pip install kestra python-dotenv requests "openai>=1.0.0" psycopg2-binary python-json-logger supabase
+      - pip list | grep openai
     
     script: |
+      import os
+      import logging
+      
+      # Configurar logging
+      logging.basicConfig(level=logging.INFO)
+      logger = logging.getLogger(__name__)
+      
+      # Verificar variáveis de ambiente críticas
+      logger.info("🔍 Verificando configuração do ambiente...")
+      
+      openai_key = os.getenv('OPENAI_API_KEY')
+      whatsapp_token = os.getenv('WHATSAPP_API_TOKEN')
+      supabase_url = os.getenv('SUPABASE_URL')
+      supabase_key = os.getenv('SUPABASE_ANON_KEY')
+      
+      logger.info(f"🔑 OPENAI_API_KEY: {'✅ Configurada' if openai_key else '❌ Não configurada'}")
+      logger.info(f"📱 WHATSAPP_API_TOKEN: {'✅ Configurada' if whatsapp_token else '❌ Não configurada'}")
+      logger.info(f"💾 SUPABASE_URL: {'✅ Configurada' if supabase_url else '❌ Não configurada'}")
+      logger.info(f"🔐 SUPABASE_ANON_KEY: {'✅ Configurada' if supabase_key else '❌ Não configurada'}")
+      
+      # Testar conexão OpenAI
+      if openai_key:
+          try:
+              from openai import OpenAI
+              client = OpenAI(api_key=openai_key, timeout=10.0)
+              logger.info("🧪 Testando conexão com OpenAI...")
+              
+              # Teste simples
+              response = client.chat.completions.create(
+                  model="gpt-3.5-turbo",
+                  messages=[{"role": "user", "content": "Teste"}],
+                  max_tokens=10
+              )
+              logger.info("✅ Conexão OpenAI funcionando!")
+              
+          except Exception as e:
+              logger.error(f"❌ Erro na conexão OpenAI: {str(e)}")
+              # Continuar mesmo com erro, pois pode ser temporário
+      
       # Importa o handler de conversação
       from scripts.ai_conversation_handler import handle_lead_message
       
@@ -53,8 +96,8 @@ tasks:
       message = '{{ trigger.body.message }}'
       
       # Log da mensagem recebida
-      print(f"📱 Mensagem recebida de {phone_number}")
-      print(f"💬 Conteúdo: {message}")
+      logger.info(f"📱 Mensagem recebida de {phone_number}")
+      logger.info(f"💬 Conteúdo: {message}")
       
       # Processa mensagem e envia resposta
       result = handle_lead_message(
@@ -66,34 +109,27 @@ tasks:
       )
       
       # Outputs para logging - usando formato correto do Kestra
-      import os
+      from kestra import Kestra
       
-      # Criar arquivo de outputs para o Kestra
-      outputs_file = os.environ.get('KESTRA_OUTPUT_PATH', '/tmp/outputs')
-      
-      outputs = {
+      # Usar o sistema de outputs do Kestra
+      Kestra.outputs({
           'response_sent': str(result['success']),
           'ai_response': result.get('ai_response', 'N/A'),
           'whatsapp_message_id': result.get('whatsapp_message_id', 'N/A'),
           'lead_phone': phone_number
-      }
-      
-      # Salvar outputs para o Kestra
-      with open(f'{outputs_file}/outputs.json', 'w') as f:
-          import json
-          json.dump(outputs, f)
+      })
       
       # Logs adicionais para debug
-      print(f"📊 Resultado: {result['success']}")
-      print(f"🤖 Resposta IA: {result.get('ai_response', 'N/A')}")
-      print(f"📱 WhatsApp ID: {result.get('whatsapp_message_id', 'N/A')}")
-      print(f"📞 Telefone: {phone_number}")
+      logger.info(f"📊 Resultado: {result['success']}")
+      logger.info(f"🤖 Resposta IA: {result.get('ai_response', 'N/A')}")
+      logger.info(f"📱 WhatsApp ID: {result.get('whatsapp_message_id', 'N/A')}")
+      logger.info(f"📞 Telefone: {phone_number}")
 
   # Log de sucesso da conversa
   - id: log-conversation-success
     type: io.kestra.plugin.core.log.Log
     description: "Registra sucesso do processamento da conversa"
-    runIf: "{{ outputs['process-lead-message'].response_sent == 'True' }}"
+    runIf: "{{ outputs['process-lead-message'].response_sent is defined and outputs['process-lead-message'].response_sent == 'true' }}"
     message: |
       ✅ CONVERSA COM IA INICIADA COM SUCESSO
       =====================================
@@ -110,7 +146,7 @@ tasks:
   - id: log-conversation-error
     type: io.kestra.plugin.core.log.Log
     description: "Registra erro no processamento da conversa"
-    runIf: "{{ outputs['process-lead-message'].response_sent != 'True' }}"
+    runIf: "{{ outputs['process-lead-message'].response_sent is not defined or outputs['process-lead-message'].response_sent != 'true' }}"
     level: ERROR
     message: |
       ❌ ERRO NO PROCESSAMENTO DA CONVERSA COM IA

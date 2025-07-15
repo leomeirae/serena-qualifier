@@ -328,6 +328,95 @@ def get_operation_areas(state: str = None, city: str = None, ibge_code: str = No
     """Função wrapper para áreas de operação"""
     return serena_api.get_operation_areas(state=state, city=city, ibge_code=ibge_code)
 
+
+def get_lead_data_from_supabase(phone):
+    """
+    Buscar dados do lead no Supabase com logs detalhados para debug
+    
+    Args:
+        phone (str): Número de telefone normalizado do lead
+    
+    Returns:
+        dict: Dados do lead se encontrado, None caso contrário
+    """
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
+    
+    # Validar configurações
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("❌ Variáveis SUPABASE_URL ou SUPABASE_ANON_KEY não configuradas")
+        logger.error(f"SUPABASE_URL: {'✅' if SUPABASE_URL else '❌'}")
+        logger.error(f"SUPABASE_ANON_KEY: {'✅' if SUPABASE_KEY else '❌'}")
+        return None
+    
+    # Configurar headers da requisição
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Construir URL de busca
+    url = f"{SUPABASE_URL}/rest/v1/leads?phone=eq.{phone}&select=*"
+    
+    logger.info(f"🔍 Buscando lead no Supabase")
+    logger.info(f"📞 Telefone normalizado: {phone}")
+    logger.info(f"🌐 URL: {url}")
+    logger.info(f"🔑 Headers configurados: {list(headers.keys())}")
+
+    try:
+        # Fazer requisição com timeout
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        logger.info(f"📡 Response Status: {response.status_code}")
+        logger.info(f"📊 Response Headers: {dict(response.headers)}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            logger.info(f"📋 Data received: {len(data) if isinstance(data, list) else 'not a list'}")
+            
+            if data and len(data) > 0:
+                lead_data = data[0]
+                logger.info(f"✅ Lead encontrado com sucesso!")
+                logger.info(f"📝 Lead ID: {lead_data.get('id', 'N/A')}")
+                logger.info(f"👤 Nome: {lead_data.get('name', 'N/A')}")
+                logger.info(f"📧 Email: {lead_data.get('email', 'N/A')}")
+                logger.info(f"💰 Valor da fatura: R$ {lead_data.get('invoice_amount', 'N/A')}")
+                return lead_data
+            else:
+                logger.warning(f"⚠️ Lead com telefone {phone} não encontrado no Supabase")
+                logger.warning(f"📊 Resposta vazia: {data}")
+                return None
+                
+        elif response.status_code == 401:
+            logger.error("🔒 Erro 401: Token de autenticação inválido")
+            logger.error("Verifique se SUPABASE_ANON_KEY está correto")
+            return None
+            
+        elif response.status_code == 404:
+            logger.error("🔍 Erro 404: Tabela 'leads' não encontrada")
+            logger.error("Verifique se a tabela existe no Supabase")
+            return None
+            
+        else:
+            logger.error(f"❌ Erro na chamada Supabase: {response.status_code}")
+            logger.error(f"📄 Response body: {response.text}")
+            return None
+            
+    except requests.exceptions.Timeout:
+        logger.error("⏰ Timeout na requisição ao Supabase")
+        return None
+        
+    except requests.exceptions.ConnectionError:
+        logger.error("🌐 Erro de conexão com o Supabase")
+        logger.error("Verifique se SUPABASE_URL está correto e acessível")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Erro inesperado ao buscar lead no Supabase: {str(e)}")
+        logger.error(f"🔍 Tipo do erro: {type(e).__name__}")
+        return None
+
 if __name__ == "__main__":
     # Teste básico
     try:

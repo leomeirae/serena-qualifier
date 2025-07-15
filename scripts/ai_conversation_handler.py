@@ -16,6 +16,7 @@ import logging
 import requests
 import json
 import base64
+import re
 from typing import Dict, Any, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -28,10 +29,10 @@ from scripts.conversation_context import ConversationContext
 
 # Importar dependências existentes
 try:
-    from scripts.serena_api import SerenaAPI
+    from scripts.serena_api import SerenaAPI, get_lead_data_from_supabase
 except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from scripts.serena_api import SerenaAPI
+    from scripts.serena_api import SerenaAPI, get_lead_data_from_supabase
 
 # A função de persistência será chamada a partir dos resultados, não diretamente aqui
 # try:
@@ -61,6 +62,14 @@ if not logger.handlers:
 load_dotenv()
 
 
+def normalize_phone(phone):
+    """Normalizar número de telefone removendo caracteres especiais e código do país"""
+    digits = re.sub(r'\D', '', phone)  # remove tudo que não for número
+    if digits.startswith('55'):
+        digits = digits[2:]  # remove o código do país
+    return digits
+
+
 class AIConversationHandler:
     """
     Orquestrador principal para processamento de conversas de leads.
@@ -82,11 +91,35 @@ class AIConversationHandler:
             self.serena_token = os.getenv('SERENA_API_TOKEN')
             self.db_connection_string = self._get_db_connection_string()
             
-            if not all([self.openai_api_key, self.whatsapp_token, self.whatsapp_phone_id, self.serena_token]):
-                raise ValueError("Variáveis de ambiente obrigatórias não configuradas. Verifique seu .env")
+            # Verificar variáveis obrigatórias com logs específicos
+            missing_vars = []
+            if not self.openai_api_key:
+                missing_vars.append("OPENAI_API_KEY")
+            if not self.whatsapp_token:
+                missing_vars.append("WHATSAPP_API_TOKEN")
+            if not self.whatsapp_phone_id:
+                missing_vars.append("WHATSAPP_PHONE_NUMBER_ID")
+            if not self.serena_token:
+                missing_vars.append("SERENA_API_TOKEN")
             
-            # Inicializar clientes
-            self.openai_client = OpenAI(api_key=self.openai_api_key)
+            if missing_vars:
+                error_msg = f"Variáveis de ambiente obrigatórias não configuradas: {', '.join(missing_vars)}"
+                logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
+            # Inicializar clientes com tratamento de erro
+            try:
+                logger.info("🤖 Inicializando cliente OpenAI...")
+                self.openai_client = OpenAI(
+                    api_key=self.openai_api_key,
+                    timeout=30.0,  # Timeout padrão de 30 segundos
+                    max_retries=3   # Retry automático em caso de erro
+                )
+                logger.info("✅ Cliente OpenAI inicializado com sucesso")
+            except Exception as e:
+                logger.error(f"❌ Erro ao inicializar cliente OpenAI: {str(e)}")
+                raise ValueError(f"Falha na inicialização do cliente OpenAI: {str(e)}")
+            
             self.serena_api = SerenaAPI()
             
             # Inicializar módulos especializados
@@ -123,42 +156,16 @@ class AIConversationHandler:
             return ""
     
     def _get_lead_data(self, phone_number: str) -> Optional[Dict[str, Any]]:
-        """Recupera dados do lead do banco de dados."""
-        if not self.db_connection_string:
-            logger.warning("String de conexão do banco não disponível")
-            return None
-        
+        """Recupera dados do lead do Supabase."""
         try:
             # Normalizar número de telefone
-            normalized_phone = self._normalize_phone_number(phone_number)
+            normalized_phone = normalize_phone(phone_number)
             
-            conn = psycopg2.connect(self.db_connection_string)
-            cur = conn.cursor()
+            # Buscar dados do lead no Supabase
+            lead_data = get_lead_data_from_supabase(normalized_phone)
             
-            # Buscar dados do lead
-            query = """
-                SELECT id, phone_number, name, email, invoice_amount, additional_data, created_at
-                FROM leads 
-                WHERE phone_number = %s
-                ORDER BY created_at DESC
-                LIMIT 1
-            """
-            
-            cur.execute(query, (normalized_phone,))
-            result = cur.fetchone()
-            
-            if result:
-                lead_data = {
-                    'id': result[0],
-                    'phone_number': result[1],
-                    'name': result[2],
-                    'email': result[3],
-                    'invoice_amount': result[4],
-                    'additional_data': json.loads(result[5]) if result[5] else {},
-                    'created_at': result[6]
-                }
-                
-                logger.info(f"✅ Dados do lead recuperados para {phone_number}: {lead_data['name']}")
+            if lead_data:
+                logger.info(f"✅ Dados do lead recuperados para {phone_number}: {lead_data.get('name', 'N/A')}")
                 return lead_data
             else:
                 logger.warning(f"❌ Lead não encontrado para {phone_number}")
@@ -167,11 +174,6 @@ class AIConversationHandler:
         except Exception as e:
             logger.error(f"❌ Erro ao recuperar dados do lead: {str(e)}")
             return None
-        finally:
-            if 'cur' in locals():
-                cur.close()
-            if 'conn' in locals():
-                conn.close()
     
     def process_message(
         self, 
@@ -197,7 +199,7 @@ class AIConversationHandler:
             Dict[str, Any]: Resultado do processamento
         """
         try:
-            phone_number = self._normalize_phone_number(phone_number)
+            phone_number = normalize_phone(phone_number)
             logger.info(f"📱 Processando mensagem de {phone_number}: {message[:100]}...")
             
             # Verificar se conversa já foi finalizada
@@ -537,8 +539,21 @@ Agora vou buscar as melhores opções de energia solar para você. Me informe su
     def _generate_ai_response(
         self, prompt: str, model: str, max_tokens: int, temperature: float
     ) -> str:
-        """Gera resposta usando OpenAI."""
+        """Gera resposta usando OpenAI com tratamento robusto de erros."""
+        logger.info(f"🤖 Iniciando chamada para OpenAI")
+        logger.info(f"📝 Modelo: {model}")
+        logger.info(f"🎯 Max tokens: {max_tokens}")
+        logger.info(f"🌡️ Temperature: {temperature}")
+        logger.info(f"🔑 API Key configurada: {'✅' if self.openai_api_key else '❌'}")
+        
         try:
+            # Verificar se a API key está configurada
+            if not self.openai_api_key:
+                logger.error("❌ OPENAI_API_KEY não está configurada")
+                return "Erro de configuração: API Key da OpenAI não encontrada."
+            
+            logger.info(f"📤 Enviando requisição para OpenAI...")
+            
             response = self.openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
@@ -546,20 +561,43 @@ Agora vou buscar as melhores opções de energia solar para você. Me informe su
                 temperature=temperature,
                 timeout=30  # Timeout de 30 segundos
             )
+            
+            logger.info(f"📥 Resposta recebida da OpenAI")
+            logger.info(f"✅ Status: Sucesso")
+            
             content = response.choices[0].message.content
-            return content.strip() if content else "Desculpe, não consegui gerar uma resposta."
+            if content:
+                logger.info(f"📊 Resposta gerada: {len(content)} caracteres")
+                return content.strip()
+            else:
+                logger.warning("⚠️ Resposta da OpenAI está vazia")
+                return "Desculpe, não consegui gerar uma resposta."
+                
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"❌ Erro na OpenAI: {error_msg}")
+            error_type = type(e).__name__
             
-            # Diferentes tipos de erro com mensagens específicas
-            if "connection" in error_msg.lower():
+            logger.error(f"❌ Erro na OpenAI: {error_type}")
+            logger.error(f"📄 Mensagem: {error_msg}")
+            
+            # Tratamento específico para diferentes tipos de erro
+            if "connection" in error_msg.lower() or "network" in error_msg.lower():
+                logger.error("🌐 Problema de conexão de rede")
                 return "Desculpe, tive um problema de conexão. Tente novamente em alguns minutos."
             elif "timeout" in error_msg.lower():
+                logger.error("⏰ Timeout na requisição")
                 return "Desculpe, a resposta demorou muito. Tente novamente."
-            elif "rate limit" in error_msg.lower():
+            elif "rate limit" in error_msg.lower() or "429" in error_msg:
+                logger.error("🚫 Rate limit excedido")
                 return "Desculpe, muitas requisições. Aguarde um momento e tente novamente."
+            elif "401" in error_msg or "authentication" in error_msg.lower():
+                logger.error("🔐 Erro de autenticação - verifique OPENAI_API_KEY")
+                return "Erro de autenticação com a OpenAI. Verifique a configuração."
+            elif "400" in error_msg or "bad request" in error_msg.lower():
+                logger.error("📝 Erro na requisição - parâmetros inválidos")
+                return "Erro na requisição. Verifique os parâmetros."
             else:
+                logger.error(f"❓ Erro não identificado: {error_type}")
                 return "Desculpe, tive um problema técnico. Pode tentar novamente?"
     
     def _normalize_phone_number(self, phone: str) -> str:
@@ -622,8 +660,11 @@ def handle_lead_message(
     temperature: float = 0.7
 ) -> Dict[str, Any]:
     """Função wrapper para processamento de mensagens."""
+    # Normalizar telefone antes da busca
+    normalized_phone = normalize_phone(phone_number)
+    
     handler = get_handler()
-    return handler.process_message(phone_number, message, media_id, ai_model, max_tokens, temperature)
+    return handler.process_message(normalized_phone, message, media_id, ai_model, max_tokens, temperature)
 
 
 def main():
