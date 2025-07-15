@@ -27,10 +27,10 @@ tasks:
       scripts/__init__.py: |
         # Scripts package for Serena Qualifier
         # Contains AI agent tools and integrations
-      scripts/ai_conversation_handler.py: "{{ read('/app/scripts/ai_conversation_handler.py') }}"
-      scripts/location_extractor.py: "{{ read('/app/scripts/location_extractor.py') }}"
-      scripts/conversation_context.py: "{{ read('/app/scripts/conversation_context.py') }}"
-      scripts/serena_api.py: "{{ read('/app/scripts/serena_api.py') }}"
+      scripts/ai_conversation_handler.py: "{{ read('scripts/ai_conversation_handler.py') }}"
+      scripts/location_extractor.py: "{{ read('scripts/location_extractor.py') }}"
+      scripts/conversation_context.py: "{{ read('scripts/conversation_context.py') }}"
+      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
     
     # --- The following blocks are now correctly indented ---
     env:
@@ -38,9 +38,11 @@ tasks:
       WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+      SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
+      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
     
     beforeCommands:
-      - pip install kestra python-dotenv requests openai psycopg2-binary
+      - pip install kestra python-dotenv requests openai psycopg2-binary python-json-logger supabase
     
     script: |
       # Importa o handler de conversação

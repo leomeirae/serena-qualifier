@@ -14,10 +14,13 @@ import os
 import sys
 import logging
 import requests
+import json
+import base64
 from typing import Dict, Any, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 from pythonjsonlogger import jsonlogger
+import psycopg2
 
 # Importar módulos especializados
 from location_extractor import LocationExtractor
@@ -77,6 +80,7 @@ class AIConversationHandler:
             self.whatsapp_token = os.getenv('WHATSAPP_API_TOKEN')
             self.whatsapp_phone_id = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
             self.serena_token = os.getenv('SERENA_API_TOKEN')
+            self.db_connection_string = self._get_db_connection_string()
             
             if not all([self.openai_api_key, self.whatsapp_token, self.whatsapp_phone_id, self.serena_token]):
                 raise ValueError("Variáveis de ambiente obrigatórias não configuradas. Verifique seu .env")
@@ -101,6 +105,73 @@ class AIConversationHandler:
         except Exception as e:
             logger.error(f"❌ Erro na inicialização: {str(e)}")
             raise
+    
+    def _get_db_connection_string(self) -> str:
+        """Obtém a string de conexão do banco de dados."""
+        encoded_conn_string = os.getenv('SECRET_DB_CONNECTION_STRING')
+        if not encoded_conn_string:
+            logger.warning("SECRET_DB_CONNECTION_STRING não encontrada")
+            return ""
+        
+        try:
+            # Decodifica a string de conexão (base64)
+            db_connection_string = base64.b64decode(encoded_conn_string).decode('utf-8')
+            logger.info("✅ String de conexão do banco decodificada com sucesso")
+            return db_connection_string
+        except Exception as e:
+            logger.error(f"❌ Erro ao decodificar string de conexão: {str(e)}")
+            return ""
+    
+    def _get_lead_data(self, phone_number: str) -> Optional[Dict[str, Any]]:
+        """Recupera dados do lead do banco de dados."""
+        if not self.db_connection_string:
+            logger.warning("String de conexão do banco não disponível")
+            return None
+        
+        try:
+            # Normalizar número de telefone
+            normalized_phone = self._normalize_phone_number(phone_number)
+            
+            conn = psycopg2.connect(self.db_connection_string)
+            cur = conn.cursor()
+            
+            # Buscar dados do lead
+            query = """
+                SELECT id, phone_number, name, email, invoice_amount, additional_data, created_at
+                FROM leads 
+                WHERE phone_number = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            
+            cur.execute(query, (normalized_phone,))
+            result = cur.fetchone()
+            
+            if result:
+                lead_data = {
+                    'id': result[0],
+                    'phone_number': result[1],
+                    'name': result[2],
+                    'email': result[3],
+                    'invoice_amount': result[4],
+                    'additional_data': json.loads(result[5]) if result[5] else {},
+                    'created_at': result[6]
+                }
+                
+                logger.info(f"✅ Dados do lead recuperados para {phone_number}: {lead_data['name']}")
+                return lead_data
+            else:
+                logger.warning(f"❌ Lead não encontrado para {phone_number}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Erro ao recuperar dados do lead: {str(e)}")
+            return None
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
     
     def process_message(
         self, 
@@ -356,14 +427,39 @@ Agora vou buscar as melhores opções de energia solar para você. Me informe su
         logger.info("📝 Processando como mensagem inicial (sem localização ou imagem de conta)")
         
         try:
-            # Gerar resposta para mensagem genérica
-            prompt = self.location_extractor.get_initial_response_prompt(message)
+            # Recuperar dados do lead do banco de dados
+            lead_data = self._get_lead_data(phone_number)
+            
+            # Gerar resposta personalizada baseada nos dados do lead
+            if lead_data:
+                # Usar dados do lead para personalizar a resposta
+                prompt = f"""
+                Você é um assistente da Serena Energia especializado em energia solar.
+                
+                Dados do lead:
+                - Nome: {lead_data['name']}
+                - Email: {lead_data['email']}
+                - Valor da conta: R$ {lead_data['invoice_amount']}
+                
+                O lead enviou a mensagem: "{message}"
+                
+                Responda de forma amigável e personalizada, usando o nome do lead.
+                Pergunte sobre a cidade e estado onde mora para poder mostrar os planos disponíveis.
+                Mantenha o foco em energia solar e economia na conta de luz.
+                """
+            else:
+                # Fallback para mensagem genérica
+                prompt = self.location_extractor.get_initial_response_prompt(message)
+            
             ai_response = self._generate_ai_response(prompt, ai_model, max_tokens, temperature)
             whatsapp_result = self._send_whatsapp_message(phone_number, ai_response)
 
-            # Salvar contexto inicial
+            # Salvar contexto inicial com dados do lead
             if whatsapp_result['success']:
-                self.conversation_context.save_context(phone_number)
+                self.conversation_context.save_context(
+                    phone_number, 
+                    extracted_data=lead_data
+                )
 
             return {
                 "success": whatsapp_result['success'],
@@ -371,6 +467,7 @@ Agora vou buscar as melhores opções de energia solar para você. Me informe su
                 "whatsapp_message_id": whatsapp_result.get('message_id'),
                 "phone_number": phone_number,
                 "model_used": ai_model,
+                "lead_data": lead_data
             }
         
         except Exception as e:
