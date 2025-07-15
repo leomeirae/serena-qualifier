@@ -23,15 +23,15 @@ from pythonjsonlogger import jsonlogger
 import psycopg2
 
 # Importar módulos especializados
-from location_extractor import LocationExtractor
-from conversation_context import ConversationContext
+from scripts.location_extractor import LocationExtractor
+from scripts.conversation_context import ConversationContext
 
 # Importar dependências existentes
 try:
-    from serena_api import SerenaAPI
+    from scripts.serena_api import SerenaAPI
 except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from serena_api import SerenaAPI
+    from scripts.serena_api import SerenaAPI
 
 # A função de persistência será chamada a partir dos resultados, não diretamente aqui
 # try:
