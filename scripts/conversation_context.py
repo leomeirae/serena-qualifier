@@ -305,3 +305,70 @@ class ConversationContext:
             summary['stage'] = 'completed'
         
         return summary
+
+
+# =============================================================================
+# FUNÇÕES HELPER PARA USO EXTERNO
+# =============================================================================
+
+# Instância global para uso em workflows
+_global_context = ConversationContext()
+
+def save_conversation_context(phone_number: str, context_data: Dict[str, Any]) -> bool:
+    """
+    Função helper para salvar contexto de conversa.
+    
+    Args:
+        phone_number (str): Número do telefone do lead
+        context_data (Dict[str, Any]): Dados do contexto a serem salvos
+        
+    Returns:
+        bool: True se salvou com sucesso, False caso contrário
+    """
+    try:
+        # Usar a instância global para salvar o contexto
+        _global_context.save_context(
+            phone_number=phone_number,
+            city=context_data.get('city'),
+            state=context_data.get('state'),
+            promotions=context_data.get('promotions'),
+            extracted_data=context_data.get('extracted_data'),
+            conversation_completed=context_data.get('conversation_completed')
+        )
+        logger.info(f"💾 Contexto salvo para {phone_number}: {context_data}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Erro ao salvar contexto para {phone_number}: {str(e)}")
+        return False
+
+def get_conversation_context(phone_number: str) -> Dict[str, Any]:
+    """
+    Função helper para recuperar contexto de conversa.
+    
+    Args:
+        phone_number (str): Número do telefone do lead
+        
+    Returns:
+        Dict[str, Any]: Contexto da conversa
+    """
+    try:
+        return _global_context.get_context(phone_number)
+    except Exception as e:
+        logger.error(f"❌ Erro ao recuperar contexto para {phone_number}: {str(e)}")
+        return {}
+
+def clear_conversation_context(phone_number: str) -> bool:
+    """
+    Função helper para limpar contexto de conversa.
+    
+    Args:
+        phone_number (str): Número do telefone do lead
+        
+    Returns:
+        bool: True se limpou com sucesso, False caso contrário
+    """
+    try:
+        return _global_context.clear_context(phone_number)
+    except Exception as e:
+        logger.error(f"❌ Erro ao limpar contexto para {phone_number}: {str(e)}")
+        return False

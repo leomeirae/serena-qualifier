@@ -86,6 +86,16 @@ class AIConversationHandler:
         try:
             # Configurar variáveis de ambiente
             self.openai_api_key = os.getenv('OPENAI_API_KEY')
+            # Decodifica se estiver em base64 (Kestra/Coolify pode passar secrets assim)
+            if self.openai_api_key and not self.openai_api_key.startswith('sk-'):
+                try:
+                    self.openai_api_key = base64.b64decode(self.openai_api_key).decode()
+                except Exception:
+                    pass  # já está em texto puro ou erro de decodificação
+            
+            # Limpar quebras de linha e espaços em branco
+            if self.openai_api_key:
+                self.openai_api_key = self.openai_api_key.strip()
             self.whatsapp_token = os.getenv('WHATSAPP_API_TOKEN')
             self.whatsapp_phone_id = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
             self.serena_token = os.getenv('SERENA_API_TOKEN')
