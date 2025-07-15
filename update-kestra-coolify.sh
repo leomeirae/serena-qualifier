@@ -33,7 +33,7 @@ check_success "Backup do docker-compose criado"
 
 # 3. Verificar se a nova versão está disponível
 echo "🔍 Verificando disponibilidade da imagem v0.23.6..."
-docker pull kestra/kestra:v0.23.6-full
+docker pull kestra/kestra:v0.23.6
 check_success "Download da nova imagem do Kestra"
 
 # 4. Parar os serviços gradualmente
@@ -55,7 +55,7 @@ echo ""
 # 5. Verificar configurações
 echo "🔧 Verificando configurações atualizadas..."
 echo "Alterações feitas:"
-echo "- Imagem atualizada: kestra/kestra:v0.23.6-full"
+echo "- Imagem atualizada: kestra/kestra:v0.23.6"
 echo "- JAVA_OPTS otimizado para melhor performance"
 echo "- Configurações mantidas compatíveis"
 echo ""

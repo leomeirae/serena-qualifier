@@ -6,7 +6,7 @@
 
 ### ✅ Versão Atualizada
 - **Antes**: `kestra/kestra:latest-full` (versão indefinida)
-- **Depois**: `kestra/kestra:v0.23.6-full` (versão específica estável)
+- **Depois**: `kestra/kestra:v0.23.6` (versão específica estável)
 - **Lançamento**: 15 de julho de 2024
 
 ### 🔧 Otimizações de Performance

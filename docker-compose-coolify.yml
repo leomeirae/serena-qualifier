@@ -86,7 +86,7 @@ services:
   # Removing separate migration service to avoid restart loops
 
   kestra:
-    image: kestra/kestra:v0.23.6-full
+    image: kestra/kestra:v0.23.6
     user: root
     command: ["server", "standalone"]
     volumes:
