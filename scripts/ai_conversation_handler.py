@@ -29,10 +29,10 @@ from scripts.conversation_context import ConversationContext
 
 # Importar dependências existentes
 try:
-    from scripts.serena_api import SerenaAPI, get_lead_data_from_supabase
+    from scripts.serena_api import SerenaAPI
 except ImportError:
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from scripts.serena_api import SerenaAPI, get_lead_data_from_supabase
+    from scripts.serena_api import SerenaAPI
 
 # A função de persistência será chamada a partir dos resultados, não diretamente aqui
 # try:
@@ -156,21 +156,37 @@ class AIConversationHandler:
             return ""
     
     def _get_lead_data(self, phone_number: str) -> Optional[Dict[str, Any]]:
-        """Recupera dados do lead do Supabase."""
+        """Recupera dados do lead do banco de dados via SECRET_DB_CONNECTION_STRING."""
         try:
             # Normalizar número de telefone
             normalized_phone = normalize_phone(phone_number)
             
-            # Buscar dados do lead no Supabase
-            lead_data = get_lead_data_from_supabase(normalized_phone)
-            
-            if lead_data:
-                logger.info(f"✅ Dados do lead recuperados para {phone_number}: {lead_data.get('name', 'N/A')}")
+            # Buscar dados do lead no banco
+            if not self.db_connection_string:
+                logger.warning("String de conexão do banco não disponível")
+                return None
+            conn = psycopg2.connect(self.db_connection_string)
+            cur = conn.cursor()
+            query = "SELECT id, phone_number, name, email, invoice_amount, additional_data, created_at FROM leads WHERE phone_number = %s ORDER BY created_at DESC LIMIT 1"
+            cur.execute(query, (normalized_phone,))
+            result = cur.fetchone()
+            cur.close()
+            conn.close()
+            if result:
+                lead_data = {
+                    'id': result[0],
+                    'phone_number': result[1],
+                    'name': result[2],
+                    'email': result[3],
+                    'invoice_amount': result[4],
+                    'additional_data': json.loads(result[5]) if result[5] else {},
+                    'created_at': result[6]
+                }
+                logger.info(f"✅ Dados do lead recuperados para {phone_number}: {lead_data['name']}")
                 return lead_data
             else:
                 logger.warning(f"❌ Lead não encontrado para {phone_number}")
                 return None
-                
         except Exception as e:
             logger.error(f"❌ Erro ao recuperar dados do lead: {str(e)}")
             return None

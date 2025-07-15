@@ -40,8 +40,6 @@ tasks:
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
-      SUPABASE_URL: "{{ envs.supabase_url }}"
-      SUPABASE_ANON_KEY: "{{ secret('SUPABASE_ANON_KEY') }}"
     
     beforeCommands:
       - pip install --upgrade pip
@@ -61,13 +59,13 @@ tasks:
       
       openai_key = os.getenv('OPENAI_API_KEY')
       whatsapp_token = os.getenv('WHATSAPP_API_TOKEN')
-      supabase_url = os.getenv('SUPABASE_URL')
-      supabase_key = os.getenv('SUPABASE_ANON_KEY')
+      # supabase_url = os.getenv('SUPABASE_URL')
+      # supabase_key = os.getenv('SUPABASE_ANON_KEY')
       
       logger.info(f"🔑 OPENAI_API_KEY: {'✅ Configurada' if openai_key else '❌ Não configurada'}")
       logger.info(f"📱 WHATSAPP_API_TOKEN: {'✅ Configurada' if whatsapp_token else '❌ Não configurada'}")
-      logger.info(f"💾 SUPABASE_URL: {'✅ Configurada' if supabase_url else '❌ Não configurada'}")
-      logger.info(f"🔐 SUPABASE_ANON_KEY: {'✅ Configurada' if supabase_key else '❌ Não configurada'}")
+      # logger.info(f"💾 SUPABASE_URL: {'✅ Configurada' if supabase_url else '❌ Não configurada'}")
+      # logger.info(f"🔐 SUPABASE_ANON_KEY: {'✅ Configurada' if supabase_key else '❌ Não configurada'}")
       
       # Testar conexão OpenAI
       if openai_key:
