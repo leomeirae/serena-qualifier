@@ -543,13 +543,24 @@ Agora vou buscar as melhores opções de energia solar para você. Me informe su
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
-                temperature=temperature
+                temperature=temperature,
+                timeout=30  # Timeout de 30 segundos
             )
             content = response.choices[0].message.content
             return content.strip() if content else "Desculpe, não consegui gerar uma resposta."
         except Exception as e:
-            logger.error(f"❌ Erro na OpenAI: {str(e)}")
-            return "Desculpe, tive um problema técnico. Pode tentar novamente?"
+            error_msg = str(e)
+            logger.error(f"❌ Erro na OpenAI: {error_msg}")
+            
+            # Diferentes tipos de erro com mensagens específicas
+            if "connection" in error_msg.lower():
+                return "Desculpe, tive um problema de conexão. Tente novamente em alguns minutos."
+            elif "timeout" in error_msg.lower():
+                return "Desculpe, a resposta demorou muito. Tente novamente."
+            elif "rate limit" in error_msg.lower():
+                return "Desculpe, muitas requisições. Aguarde um momento e tente novamente."
+            else:
+                return "Desculpe, tive um problema técnico. Pode tentar novamente?"
     
     def _normalize_phone_number(self, phone: str) -> str:
         """Normaliza número de telefone."""

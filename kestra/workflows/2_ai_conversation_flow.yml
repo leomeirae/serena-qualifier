@@ -65,24 +65,42 @@ tasks:
           temperature={{ vars.temperature }}
       )
       
-      # Outputs para logging
-      print(f"::set-output name=response_sent::{result['success']}")
-      print(f"::set-output name=ai_response::{result.get('ai_response', 'N/A')}")
-      print(f"::set-output name=whatsapp_message_id::{result.get('whatsapp_message_id', 'N/A')}")
-      print(f"::set-output name=lead_phone::{phone_number}")
+      # Outputs para logging - usando formato correto do Kestra
+      import os
+      
+      # Criar arquivo de outputs para o Kestra
+      outputs_file = os.environ.get('KESTRA_OUTPUT_PATH', '/tmp/outputs')
+      
+      outputs = {
+          'response_sent': str(result['success']),
+          'ai_response': result.get('ai_response', 'N/A'),
+          'whatsapp_message_id': result.get('whatsapp_message_id', 'N/A'),
+          'lead_phone': phone_number
+      }
+      
+      # Salvar outputs para o Kestra
+      with open(f'{outputs_file}/outputs.json', 'w') as f:
+          import json
+          json.dump(outputs, f)
+      
+      # Logs adicionais para debug
+      print(f"📊 Resultado: {result['success']}")
+      print(f"🤖 Resposta IA: {result.get('ai_response', 'N/A')}")
+      print(f"📱 WhatsApp ID: {result.get('whatsapp_message_id', 'N/A')}")
+      print(f"📞 Telefone: {phone_number}")
 
   # Log de sucesso da conversa
   - id: log-conversation-success
     type: io.kestra.plugin.core.log.Log
     description: "Registra sucesso do processamento da conversa"
-    runIf: "{{ outputs['process-lead-message'].vars.response_sent == 'True' }}"
+    runIf: "{{ outputs['process-lead-message'].response_sent == 'True' }}"
     message: |
       ✅ CONVERSA COM IA INICIADA COM SUCESSO
       =====================================
       Phone: {{ trigger.body.phone }}
       Message Received: {{ trigger.body.message }}
-      AI Response: {{ outputs['process-lead-message'].vars.ai_response }}
-      WhatsApp Message ID: {{ outputs['process-lead-message'].vars.whatsapp_message_id }}
+      AI Response: {{ outputs['process-lead-message'].ai_response }}
+      WhatsApp Message ID: {{ outputs['process-lead-message'].whatsapp_message_id }}
       Model Used: {{ vars.ai_model }}
       Timestamp: {{ execution.startDate }}
       
@@ -92,7 +110,7 @@ tasks:
   - id: log-conversation-error
     type: io.kestra.plugin.core.log.Log
     description: "Registra erro no processamento da conversa"
-    runIf: "{{ outputs['process-lead-message'].vars.response_sent != 'True' }}"
+    runIf: "{{ outputs['process-lead-message'].response_sent != 'True' }}"
     level: ERROR
     message: |
       ❌ ERRO NO PROCESSAMENTO DA CONVERSA COM IA
