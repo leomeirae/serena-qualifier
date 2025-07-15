@@ -86,7 +86,7 @@ services:
   # Removing separate migration service to avoid restart loops
 
   kestra:
-    image: kestra/kestra:latest-full
+    image: kestra/kestra:v0.23.6-full
     user: root
     command: ["server", "standalone"]
     volumes:
@@ -97,7 +97,7 @@ services:
     environment:
       <<: *kestra-config
       KESTRA_LOG_LEVEL: INFO
-      JAVA_OPTS: "-server -XX:MaxRAMPercentage=75.0 -Xms512m -Xmx2g"
+      JAVA_OPTS: "-server -XX:MaxRAMPercentage=80.0 -Xms512m -Xmx2g -XX:+UseG1GC -XX:+UseStringDeduplication"
       TZ: America/Sao_Paulo
       # Configurações para proxy reverso HTTPS
       MICRONAUT_SERVER_PROXY_TARGET_HEADER: "X-Forwarded-Proto"
