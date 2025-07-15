@@ -24,6 +24,8 @@ x-kestra-config: &kestra-config
           path: /tmp/kestra-wd/tmp
       variables:
         env-vars-prefix: ""
+      secret:
+        type: env
     micronaut:
       server:
         port: 8081
