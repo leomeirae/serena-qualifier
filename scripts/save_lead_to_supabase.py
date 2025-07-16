@@ -9,14 +9,14 @@ Este script contém duas funções principais:
 MAPEAMENTO DEFINITIVO DOS CAMPOS:
 - nomeCompleto → name
 - whatsapp → phone_number  
-- email → additional_data.email (NÃO existe coluna email na tabela)
-- faixaConta → additional_data.faixaConta
-- tipoCliente → additional_data.tipoCliente
-- city → city (preenchido durante conversa)
-- invoice_amount → invoice_amount (extraído do OCR)
+- email → additional_data.email
+- faixaConta → invoice_amount
+- tipoCliente → client_type
+- city → city
+- state → state
 
 Author: Serena-Coder AI Agent
-Version: 2.0.0 - Task-2006: Adicionada função save_qualified_lead()
+Version: 2.1.0 - Task-2007: Corrigido bug de salvamento de email
 """
 
 import os
@@ -46,27 +46,30 @@ def save_lead(name, phone, email, account_value, client_type, state, city):
                 print("💾 Salvando lead no Supabase...")
                 print(f"   - Nome: {name}")
                 print(f"   - Telefone: {phone}")
-                print(f"   - Email: {email}")
+                print(f"   - Email (em additional_data): {email}")
                 print(f"   - Estado: {state}")
                 print(f"   - Cidade: {city}")
 
+                # Prepara o payload para a coluna additional_data
+                additional_data_payload = {"email": email}
+                additional_data_json = json.dumps(additional_data_payload)
+
                 # Usando um upsert (INSERT ... ON CONFLICT) para evitar duplicados
-                # Se um lead com o mesmo phone_number já existir, ele será atualizado.
                 cur.execute(
                     """
-                    INSERT INTO leads (phone_number, name, email, invoice_amount, client_type, state, city, updated_at)
+                    INSERT INTO leads (phone_number, name, invoice_amount, client_type, state, city, additional_data, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (phone_number) 
                     DO UPDATE SET
                         name = EXCLUDED.name,
-                        email = EXCLUDED.email,
                         invoice_amount = EXCLUDED.invoice_amount,
                         client_type = EXCLUDED.client_type,
                         state = EXCLUDED.state,
                         city = EXCLUDED.city,
+                        additional_data = leads.additional_data || %s::jsonb, -- Faz o merge do JSON
                         updated_at = CURRENT_TIMESTAMP;
                     """,
-                    (phone, name, email, account_value, client_type, state, city)
+                    (phone, name, account_value, client_type, state, city, additional_data_json, additional_data_json)
                 )
                 print("✅ Lead salvo com sucesso!")
 
@@ -83,7 +86,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Salva um lead no Supabase.")
     parser.add_argument("--name", required=True, help="Nome do lead.")
     parser.add_argument("--phone", required=True, help="Número de telefone do lead (com código do país).")
-    parser.add_argument("--email", required=True, help="Endereço de e-mail do lead.")
+    parser.add_argument("--email", required=False, default="", help="Endereço de e-mail do lead.")
     parser.add_argument("--account_value", default=None, help="Valor da conta de energia.")
     parser.add_argument("--client_type", default=None, help="Tipo de cliente (ex: residencial).")
     parser.add_argument("--state", default="", help="Estado do lead.")
