@@ -1,6 +1,6 @@
 id: 2_ai_conversation_flow
 namespace: serena.production
-description: "Fluxo de Conversa com IA v8 - Agente Sílvia com RAG de FAQ"
+description: "Fluxo de Conversa com IA v9 - Agente com Consulta de Lead"
 
 triggers:
   - id: webhook_lead_message
@@ -28,92 +28,14 @@ tasks:
       SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
       
     inputFiles:
-      scripts/agent_orchestrator.py: |
-        # Conteúdo de scripts/agent_orchestrator.py com o novo system_prompt e a ferramenta consultar_faq_serena
-        import os, argparse, json
-        from dotenv import load_dotenv
-        from langchain_openai import ChatOpenAI
-        from langchain.agents import AgentExecutor, create_openai_tools_agent
-        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-        from langchain_community.chat_message_histories import ChatMessageHistory
-        from langchain_core.runnables.history import RunnableWithMessageHistory
-        from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
-        from scripts.agent_tools.serena_tools import buscar_planos_de_energia_por_localizacao, analisar_conta_de_energia_de_imagem
-        from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia
-        load_dotenv()
-        tools = [consultar_faq_serena, buscar_planos_de_energia_por_localizacao, analisar_conta_de_energia_de_imagem, salvar_ou_atualizar_lead_silvia]
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
-        system_prompt = """
-        # QUEM SOU EU
-        - **Identidade**: Meu nome é Sílvia, sou uma representante virtual especialista da Serena Energia.
-        - **Missão**: Ajudar clientes a contratar energia limpa de forma 100% digital.
-        - **Comportamento**: Tom de voz informal, simpático e bem-humorado. Ajo como uma especialista que descomplica.
-        - **Objetivo Principal**: Qualificar leads (consumo > 200kWh) e guiá-los para enviar a conta de energia.
-        # COMO DEVO AGIR
-        1.  Apresente-se como "Sílvia da Serena Energia" na primeira interação.
-        2.  Para dúvidas comuns, use a ferramenta 'consultar_faq_serena'.
-        3.  Para planos e cobertura, use 'buscar_planos_de_energia_por_localizacao'.
-        4.  Incentive o envio da conta de energia para análise de desconto.
-        5.  Ao receber imagem, use 'analisar_conta_de_energia_de_imagem'.
-        6.  Após confirmar dados, use 'salvar_ou_atualizar_lead_silvia'.
-        """
-        prompt = ChatPromptTemplate.from_messages([("system", system_prompt), MessagesPlaceholder(variable_name="chat_history"), ("user", "{input}"), MessagesPlaceholder(variable_name="agent_scratchpad")])
-        agent = create_openai_tools_agent(llm, tools, prompt)
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-        store = {}
-        def get_session_history(session_id: str) -> ChatMessageHistory:
-            if session_id not in store: store[session_id] = ChatMessageHistory()
-            return store[session_id]
-        agent_with_chat_history = RunnableWithMessageHistory(agent_executor, get_session_history, input_messages_key="input", history_messages_key="chat_history")
-        def handle_agent_invocation(phone_number: str, user_message: str, image_url: str = None):
-            input_data = f"Imagem: {image_url}. Mensagem: {user_message}" if image_url else user_message
-            config = {"configurable": {"session_id": phone_number}}
-            response = agent_with_chat_history.invoke({"input": input_data}, config=config)
-            return {"response": response.get("output", "Não consegui processar sua solicitação.")}
-        if __name__ == '__main__':
-            parser = argparse.ArgumentParser(description='Orquestrador do Agente Sílvia.')
-            parser.add_argument('--phone_number', required=True)
-            parser.add_argument('--message', required=True)
-            parser.add_argument('--image_url')
-            args = parser.parse_args()
-            result = handle_agent_invocation(args.phone_number, args.message, args.image_url)
-            print(json.dumps(result))
-
-      scripts/agent_tools/knowledge_base_tool.py: |
-        # Conteúdo refatorado de scripts/agent_tools/knowledge_base_tool.py
-        from langchain_core.documents import Document
-        from langchain_openai import OpenAIEmbeddings
-        from langchain_community.vectorstores import FAISS
-        from langchain_core.tools import tool
-        from scripts.agent_tools.faq_data import FAQ_LIST
-        def get_faq_retriever():
-            documents = [Document(page_content=f"Pergunta: {item['pergunta']}\nResposta: {item['resposta']}") for item in FAQ_LIST]
-            if not documents: raise ValueError("A lista de FAQ está vazia.")
-            embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-            vector_store = FAISS.from_documents(documents, embeddings)
-            return vector_store.as_retriever(search_kwargs={"k": 3})
-        faq_retriever = get_faq_retriever()
-        @tool
-        def consultar_faq_serena(pergunta_do_usuario: str) -> str:
-            """Use para responder a perguntas comuns sobre a Serena Energia, serviços, custos e cobertura."""
-            docs = faq_retriever.invoke(pergunta_do_usuario)
-            if not docs: return "Não encontrei uma resposta para isso em nosso FAQ."
-            return "\n\n".join([doc.page_content for doc in docs])
-
-      scripts/agent_tools/faq_data.py: |
-        # Conteúdo de scripts/agent_tools/faq_data.py
-        FAQ_LIST = [
-            {"pergunta": "O que é energia limpa?", "resposta": "Energia limpa vem de fontes renováveis como solar e eólica. Nosso papel é tornar seu acesso fácil e seguro para você!"},
-            {"pergunta": "Preciso instalar placas solares?", "resposta": "Não, de jeito nenhum! Nós produzimos a energia e a distribuidora local entrega na sua casa, sem custo de instalação para você."},
-            {"pergunta": "Quanto vou economizar?", "resposta": "A economia pode chegar a 21% para clientes residenciais e até 40% para empresas."},
-            {"pergunta": "Como fica minha conta de luz?", "resposta": "Você receberá uma fatura única da Serena, já com o desconto. Pode desconsiderar o boleto da sua distribuidora antiga."},
-            {"pergunta": "Com quem falo se a energia acabar?", "resposta": "Você continua falando com a sua distribuidora de energia local. Eles cuidam da infraestrutura física."},
-            {"pergunta": "Vocês atendem na minha cidade?", "resposta": "Atendemos quase todo o Brasil! Para eu te dar a resposta exata, só preciso que me informe sua cidade e estado."}
-        ]
-
-      # Ferramentas e dependências que permanecem
+      # Scripts do Agente
+      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
+      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
       scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
       scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      
+      # Dependências
       scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
       
       # __init__.py para os diretórios
@@ -130,8 +52,11 @@ tasks:
       from scripts.agent_orchestrator import handle_agent_invocation
       phone_number = "{{ trigger.body.phone }}"
       user_message = "{{ trigger.body.message }}"
-      image_url = "{{ trigger.body.get('media_url') }}"
-      result = handle_agent_invocation(phone_number, user_message, image_url)
+      # O número de telefone também é o input inicial para o agente carregar o contexto
+      initial_input = phone_number
+      
+      result = handle_agent_invocation(phone_number, user_message, initial_input)
+      
       from kestra import Kestra
       Kestra.outputs({'response': result['response']})
 

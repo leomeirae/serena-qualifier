@@ -61,21 +61,18 @@ def main():
     
     # Files to upload (local path -> namespace path)
     files_to_upload = {
-        # Scripts legados e dependências compartilhadas
-        'scripts/ai_conversation_handler.py': 'scripts/ai_conversation_handler.py',
-        'scripts/location_extractor.py': 'scripts/location_extractor.py',
-        'scripts/conversation_context.py': 'scripts/conversation_context.py',
+        # Dependências compartilhadas
         'scripts/serena_api.py': 'scripts/serena_api.py',
         'scripts/save_lead_to_supabase.py': 'scripts/save_lead_to_supabase.py',
         
-        # Novos arquivos do Agente Sílvia
+        # Arquivos do novo Agente Sílvia
         'scripts/agent_orchestrator.py': 'scripts/agent_orchestrator.py',
+        'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
         'scripts/agent_tools/knowledge_base_tool.py': 'scripts/agent_tools/knowledge_base_tool.py',
         'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
         'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
         
-        # Artefatos do Agente
-        'manual_representante_serena.markdown': 'manual_representante_serena.markdown',
+        # Arquivo de dependências
         'requirements.txt': 'requirements.txt'
     }
     

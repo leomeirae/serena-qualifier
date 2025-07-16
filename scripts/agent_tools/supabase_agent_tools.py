@@ -8,6 +8,43 @@ from langchain_core.tools import tool
 load_dotenv()
 
 @tool
+def consultar_dados_lead(phone_number: str) -> str:
+    """
+    Consulta os dados de um lead existente no banco de dados usando o número de telefone.
+    Use esta ferramenta no início de cada conversa para carregar o contexto do lead, 
+    como nome e cidade, antes de interagir com ele.
+    """
+    conn_string = os.getenv("DB_CONNECTION_STRING")
+    if not conn_string:
+        return "Erro: A variável de ambiente DB_CONNECTION_STRING não foi encontrada."
+
+    try:
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, city, state, invoice_amount, client_type FROM leads WHERE phone_number = %s",
+                    (phone_number,)
+                )
+                result = cur.fetchone()
+                
+                if result:
+                    lead_data = {
+                        "name": result[0],
+                        "city": result[1],
+                        "state": result[2],
+                        "invoice_amount": result[3],
+                        "client_type": result[4]
+                    }
+                    return json.dumps(lead_data)
+                else:
+                    return "Nenhum dado encontrado para este número de telefone."
+
+    except psycopg2.Error as e:
+        return f"Erro ao consultar o banco de dados: {e}"
+    except Exception as e:
+        return f"Ocorreu um erro inesperado: {e}"
+
+@tool
 def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
     """
     Salva ou atualiza os dados de um lead no banco de dados. 

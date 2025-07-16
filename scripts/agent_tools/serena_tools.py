@@ -4,7 +4,6 @@ import os
 import base64
 from openai import OpenAI
 from scripts.serena_api import SerenaAPI
-from scripts.save_lead_to_supabase import save_lead
 
 # --- Instâncias de Clientes ---
 serena_api_client = SerenaAPI()
