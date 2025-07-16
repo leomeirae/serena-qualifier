@@ -1,6 +1,7 @@
 import os
 import psycopg2
 import json
+import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
@@ -19,11 +20,18 @@ def consultar_dados_lead(phone_number: str) -> str:
         return "Erro: A variável de ambiente DB_CONNECTION_STRING não foi encontrada."
 
     try:
+        # Normaliza o número de telefone APENAS para a busca no banco
+        digits_only = re.sub(r'\D', '', phone_number)
+        if digits_only.startswith('55'):
+            search_phone_number = digits_only[2:]
+        else:
+            search_phone_number = digits_only
+
         with psycopg2.connect(conn_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT name, city, state, invoice_amount, client_type FROM leads WHERE phone_number = %s",
-                    (phone_number,)
+                    (search_phone_number,)
                 )
                 result = cur.fetchone()
                 
