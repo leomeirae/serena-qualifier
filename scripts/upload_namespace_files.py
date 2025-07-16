@@ -61,17 +61,28 @@ def main():
     
     # Files to upload (local path -> namespace path)
     files_to_upload = {
+        # Scripts legados e dependências compartilhadas
         'scripts/ai_conversation_handler.py': 'scripts/ai_conversation_handler.py',
         'scripts/location_extractor.py': 'scripts/location_extractor.py',
         'scripts/conversation_context.py': 'scripts/conversation_context.py',
         'scripts/serena_api.py': 'scripts/serena_api.py',
-        'scripts/save_lead_to_supabase.py': 'scripts/save_lead_to_supabase.py'
+        'scripts/save_lead_to_supabase.py': 'scripts/save_lead_to_supabase.py',
+        
+        # Novos arquivos do Agente Sílvia
+        'scripts/agent_orchestrator.py': 'scripts/agent_orchestrator.py',
+        'scripts/agent_tools/knowledge_base_tool.py': 'scripts/agent_tools/knowledge_base_tool.py',
+        'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
+        'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
+        
+        # Artefatos do Agente
+        'manual_representante_serena.markdown': 'manual_representante_serena.markdown',
+        'requirements.txt': 'requirements.txt'
     }
     
     success_count = 0
     total_files = len(files_to_upload)
     
-    logger.info(f"🚀 Starting upload of {total_files} files to Kestra namespace files storage...")
+    logger.info(f"🚀 Starting upload of {total_files} files to Kestra namespace...")
     
     for local_path, namespace_path in files_to_upload.items():
         if os.path.exists(local_path):
@@ -83,10 +94,10 @@ def main():
     logger.info(f"📊 Upload completed: {success_count}/{total_files} files uploaded successfully")
     
     if success_count == total_files:
-        logger.info("🎉 All files uploaded successfully! The 2_ai_conversation_flow workflow should now work.")
+        logger.info("🎉 All necessary files are now in the Kestra namespace.")
         return True
     else:
-        logger.error("❌ Some files failed to upload. Check the logs above for details.")
+        logger.error("❌ Some files failed to upload. The agent may not work correctly.")
         return False
 
 if __name__ == "__main__":

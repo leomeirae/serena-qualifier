@@ -1,6 +1,6 @@
 id: 2_ai_conversation_flow
 namespace: serena.production
-description: "Fluxo de Conversa com IA v7 - Agente Autônomo Sílvia"
+description: "Fluxo de Conversa com IA v8 - Agente Sílvia com RAG de FAQ"
 
 triggers:
   - id: webhook_lead_message
@@ -20,347 +20,118 @@ tasks:
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
-    
+
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
-
+      
     inputFiles:
       scripts/agent_orchestrator.py: |
-        import os
-        import argparse
-        import json
+        # Conteúdo de scripts/agent_orchestrator.py com o novo system_prompt e a ferramenta consultar_faq_serena
+        import os, argparse, json
         from dotenv import load_dotenv
         from langchain_openai import ChatOpenAI
         from langchain.agents import AgentExecutor, create_openai_tools_agent
         from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         from langchain_community.chat_message_histories import ChatMessageHistory
         from langchain_core.runnables.history import RunnableWithMessageHistory
-        from scripts.agent_tools.knowledge_base_tool import consultar_manual_serena
-        from scripts.agent_tools.serena_tools import (
-            buscar_planos_de_energia_por_localizacao,
-            analisar_conta_de_energia_de_imagem,
-            salvar_dados_finais_lead
-        )
+        from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
+        from scripts.agent_tools.serena_tools import buscar_planos_de_energia_por_localizacao, analisar_conta_de_energia_de_imagem
+        from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia
         load_dotenv()
-        tools = [
-            consultar_manual_serena,
-            buscar_planos_de_energia_por_localizacao,
-            analisar_conta_de_energia_de_imagem,
-            salvar_dados_finais_lead
-        ]
+        tools = [consultar_faq_serena, buscar_planos_de_energia_por_localizacao, analisar_conta_de_energia_de_imagem, salvar_ou_atualizar_lead_silvia]
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
         system_prompt = """
-        Você é a Sílvia, uma representante virtual simpática e bem-humorada da Serena Energia. 
-        Seu objetivo é guiar os leads no processo de qualificação.
-        Siga estes passos:
-        1. Sempre se apresente na primeira interação.
-        2. Responda a perguntas gerais sobre a empresa usando a ferramenta 'consultar_manual_serena'.
-        3. Se o usuário perguntar sobre planos ou cobertura, use a ferramenta 'buscar_planos_de_energia_por_localizacao'.
-        4. Após tirar as dúvidas iniciais, incentive o usuário a enviar uma foto da conta de energia para uma análise de desconto.
-        5. Quando o usuário enviar uma imagem, use a ferramenta 'analisar_conta_de_energia_de_imagem'.
-        6. Com os dados da conta em mãos, confirme as informações com o usuário e, se estiverem corretas, use 'salvar_dados_finais_lead'.
-        Use emojis com moderação para manter um tom amigável.
-        Mantenha as respostas curtas e diretas.
+        # QUEM SOU EU
+        - **Identidade**: Meu nome é Sílvia, sou uma representante virtual especialista da Serena Energia.
+        - **Missão**: Ajudar clientes a contratar energia limpa de forma 100% digital.
+        - **Comportamento**: Tom de voz informal, simpático e bem-humorado. Ajo como uma especialista que descomplica.
+        - **Objetivo Principal**: Qualificar leads (consumo > 200kWh) e guiá-los para enviar a conta de energia.
+        # COMO DEVO AGIR
+        1.  Apresente-se como "Sílvia da Serena Energia" na primeira interação.
+        2.  Para dúvidas comuns, use a ferramenta 'consultar_faq_serena'.
+        3.  Para planos e cobertura, use 'buscar_planos_de_energia_por_localizacao'.
+        4.  Incentive o envio da conta de energia para análise de desconto.
+        5.  Ao receber imagem, use 'analisar_conta_de_energia_de_imagem'.
+        6.  Após confirmar dados, use 'salvar_ou_atualizar_lead_silvia'.
         """
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
+        prompt = ChatPromptTemplate.from_messages([("system", system_prompt), MessagesPlaceholder(variable_name="chat_history"), ("user", "{input}"), MessagesPlaceholder(variable_name="agent_scratchpad")])
         agent = create_openai_tools_agent(llm, tools, prompt)
         agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
         store = {}
         def get_session_history(session_id: str) -> ChatMessageHistory:
-            if session_id not in store:
-                store[session_id] = ChatMessageHistory()
+            if session_id not in store: store[session_id] = ChatMessageHistory()
             return store[session_id]
-        agent_with_chat_history = RunnableWithMessageHistory(
-            agent_executor,
-            get_session_history,
-            input_messages_key="input",
-            history_messages_key="chat_history",
-        )
+        agent_with_chat_history = RunnableWithMessageHistory(agent_executor, get_session_history, input_messages_key="input", history_messages_key="chat_history")
         def handle_agent_invocation(phone_number: str, user_message: str, image_url: str = None):
-            if image_url:
-                input_data = f"O usuário enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
-            else:
-                input_data = user_message
+            input_data = f"Imagem: {image_url}. Mensagem: {user_message}" if image_url else user_message
             config = {"configurable": {"session_id": phone_number}}
             response = agent_with_chat_history.invoke({"input": input_data}, config=config)
             return {"response": response.get("output", "Não consegui processar sua solicitação.")}
         if __name__ == '__main__':
             parser = argparse.ArgumentParser(description='Orquestrador do Agente Sílvia.')
-            parser.add_argument('--phone_number', type=str, required=True, help='Número de telefone do usuário (ID da sessão).')
-            parser.add_argument('--message', type=str, required=True, help='Mensagem do usuário.')
-            parser.add_argument('--image_url', type=str, help='URL da imagem (opcional).')
+            parser.add_argument('--phone_number', required=True)
+            parser.add_argument('--message', required=True)
+            parser.add_argument('--image_url')
             args = parser.parse_args()
             result = handle_agent_invocation(args.phone_number, args.message, args.image_url)
             print(json.dumps(result))
 
       scripts/agent_tools/knowledge_base_tool.py: |
-        import os
-        from langchain_community.document_loaders import UnstructuredMarkdownLoader
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        # Conteúdo refatorado de scripts/agent_tools/knowledge_base_tool.py
+        from langchain_core.documents import Document
         from langchain_openai import OpenAIEmbeddings
         from langchain_community.vectorstores import FAISS
-        from langchain.tools import tool
-        def get_knowledge_base():
-            manual_path = "manual_representante_serena.markdown"
-            if not os.path.exists(manual_path):
-                raise FileNotFoundError(f"O arquivo do manual não foi encontrado em: {manual_path}")
-            loader = UnstructuredMarkdownLoader(manual_path)
-            documents = loader.load()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            chunks = text_splitter.split_documents(documents)
+        from langchain_core.tools import tool
+        from scripts.agent_tools.faq_data import FAQ_LIST
+        def get_faq_retriever():
+            documents = [Document(page_content=f"Pergunta: {item['pergunta']}\nResposta: {item['resposta']}") for item in FAQ_LIST]
+            if not documents: raise ValueError("A lista de FAQ está vazia.")
             embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-            vector_store = FAISS.from_documents(chunks, embeddings)
-            return vector_store.as_retriever()
-        knowledge_retriever = get_knowledge_base()
+            vector_store = FAISS.from_documents(documents, embeddings)
+            return vector_store.as_retriever(search_kwargs={"k": 3})
+        faq_retriever = get_faq_retriever()
         @tool
-        def consultar_manual_serena(pergunta_do_usuario: str) -> str:
-            """
-            Use esta ferramenta para responder a perguntas gerais sobre a Serena Energia, 
-            produtos, comissionamento, energia limpa ou o processo de contratação.
-            A entrada para esta ferramenta deve ser a pergunta exata do usuário.
-            """
-            docs = knowledge_retriever.invoke(pergunta_do_usuario)
-            resposta_baseada_no_manual = "\n\n".join([doc.page_content for doc in docs])
-            if not resposta_baseada_no_manual:
-                return "Não encontrei informações sobre isso no manual. Tente reformular a pergunta."
-            return resposta_baseada_no_manual
+        def consultar_faq_serena(pergunta_do_usuario: str) -> str:
+            """Use para responder a perguntas comuns sobre a Serena Energia, serviços, custos e cobertura."""
+            docs = faq_retriever.invoke(pergunta_do_usuario)
+            if not docs: return "Não encontrei uma resposta para isso em nosso FAQ."
+            return "\n\n".join([doc.page_content for doc in docs])
 
-      scripts/agent_tools/serena_tools.py: |
-        from langchain.tools import tool
-        import json
-        import os
-        from openai import OpenAI
-        from scripts.serena_api import SerenaAPI
-        from scripts.save_lead_to_supabase import save_lead
-        serena_api_client = SerenaAPI()
-        openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        def _analyze_bill_with_vision(image_url: str) -> dict:
-            response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Analise a imagem desta conta de energia e extraia o nome do titular, o valor total e o consumo em kWh. Retorne apenas um JSON com as chaves 'nome_cliente', 'valor_total' e 'consumo_kwh'."},
-                            {"type": "image_url", "image_url": {"url": image_url}},
-                        ],
-                    }
-                ],
-                max_tokens=300,
-            )
-            try:
-                content = response.choices[0].message.content
-                if content:
-                    return json.loads(content)
-                return {}
-            except (json.JSONDecodeError, IndexError):
-                return {}
-        @tool
-        def buscar_planos_de_energia_por_localizacao(localizacao: str) -> str:
-            """
-            Use esta ferramenta quando um usuário perguntar sobre planos, descontos ou 
-            cobertura em uma cidade específica. A entrada deve ser a localização no 
-            formato 'cidade, estado'. Retorna os planos disponíveis ou uma mensagem 
-            de que a área não é atendida.
-            """
-            try:
-                cidade, estado = localizacao.split(',')
-                cidade = cidade.strip()
-                estado = estado.strip()
-                planos = serena_api_client.get_plans(cidade, estado)
-                if planos:
-                    return json.dumps(planos)
-                else:
-                    return f"A Serena Energia ainda não atende a região de {cidade}, {estado}."
-            except ValueError:
-                return "Formato de localização inválido. Por favor, use 'cidade, estado'."
-            except Exception as e:
-                return f"Ocorreu um erro ao buscar os planos: {e}"
-        @tool
-        def analisar_conta_de_energia_de_imagem(image_url: str) -> str:
-            """
-            Use esta ferramenta APENAS quando o usuário enviar uma imagem de uma 
-            conta de luz. Ela recebe a URL da imagem, extrai dados como valor, 
-            consumo e nome do cliente, e retorna essas informações estruturadas em JSON.
-            """
-            try:
-                dados_extraidos = _analyze_bill_with_vision(image_url)
-                if dados_extraidos and all(k in dados_extraidos for k in ['nome_cliente', 'valor_total', 'consumo_kwh']):
-                    return json.dumps(dados_extraidos)
-                else:
-                    return "Não foi possível extrair todos os dados necessários da imagem. Peça ao usuário para enviar uma imagem mais nítida."
-            except Exception as e:
-                return f"Ocorreu um erro ao processar a imagem da conta de energia: {e}"
-        @tool
-        def salvar_dados_finais_lead(dados_lead: str) -> str:
-            """
-            Use esta ferramenta para salvar ou atualizar os dados de um lead no banco 
-            de dados. A entrada deve ser um dicionário em formato de string JSON 
-            contendo as chaves: 'name', 'phone', 'email', 'city', 'state', 
-            e um dicionário aninhado 'energy_bill_data' com 'valor_total' e 'client_type'.
-            """
-            try:
-                dados_dict = json.loads(dados_lead)
-                energy_data = dados_dict.get('energy_bill_data', {})
-                save_lead(
-                    name=dados_dict.get('name'),
-                    phone=dados_dict.get('phone'),
-                    email=dados_dict.get('email', ''),
-                    account_value=energy_data.get('valor_total'),
-                    client_type=energy_data.get('client_type', 'Residencial'),
-                    city=dados_dict.get('city'),
-                    state=dados_dict.get('state')
-                )
-                return "Lead salvo com sucesso!"
-            except json.JSONDecodeError:
-                return "Erro: A entrada para salvar_dados_finais_lead não é um JSON válido."
-            except Exception as e:
-                return f"Ocorreu um erro inesperado ao salvar o lead: {e}"
+      scripts/agent_tools/faq_data.py: |
+        # Conteúdo de scripts/agent_tools/faq_data.py
+        FAQ_LIST = [
+            {"pergunta": "O que é energia limpa?", "resposta": "Energia limpa vem de fontes renováveis como solar e eólica. Nosso papel é tornar seu acesso fácil e seguro para você!"},
+            {"pergunta": "Preciso instalar placas solares?", "resposta": "Não, de jeito nenhum! Nós produzimos a energia e a distribuidora local entrega na sua casa, sem custo de instalação para você."},
+            {"pergunta": "Quanto vou economizar?", "resposta": "A economia pode chegar a 21% para clientes residenciais e até 40% para empresas."},
+            {"pergunta": "Como fica minha conta de luz?", "resposta": "Você receberá uma fatura única da Serena, já com o desconto. Pode desconsiderar o boleto da sua distribuidora antiga."},
+            {"pergunta": "Com quem falo se a energia acabar?", "resposta": "Você continua falando com a sua distribuidora de energia local. Eles cuidam da infraestrutura física."},
+            {"pergunta": "Vocês atendem na minha cidade?", "resposta": "Atendemos quase todo o Brasil! Para eu te dar a resposta exata, só preciso que me informe sua cidade e estado."}
+        ]
 
-      scripts/serena_api.py: |
-        import os
-        import requests
-        import logging
-        from typing import Dict, List, Optional, Any
-        from dotenv import load_dotenv
-        import time
-        load_dotenv()
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
-        class SerenaAPI:
-            def __init__(self):
-                self.token = os.getenv("SERENA_API_TOKEN")
-                self.base_url = os.getenv("SERENA_API_BASE_URL", "https://partnership-service-staging.api.srna.co")
-                if not self.token:
-                    raise ValueError("SERENA_API_TOKEN não encontrado nas variáveis de ambiente")
-                self.headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json", "Accept": "application/json"}
-                self.last_request_time = 0
-                self.min_request_interval = 1.0
-            def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
-                url = f"{self.base_url}{endpoint}"
-                try:
-                    response = requests.request(method=method, url=url, headers=self.headers, timeout=30, **kwargs)
-                    if response.status_code == 200:
-                        return response.json()
-                    else:
-                        raise Exception(f"Erro na API: {response.status_code} - {response.text}")
-                except Exception as e:
-                    raise
-            def get_plans(self, city: Optional[str] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
-                try:
-                    if not city or not state: return []
-                    response = self._make_request("GET", "/distribuited-generation/plans", params={'city': city, 'state': state})
-                    all_plans = []
-                    if isinstance(response, list):
-                        for utility_data in response:
-                            if isinstance(utility_data, dict) and 'plans' in utility_data:
-                                for plan in utility_data.get('plans', []):
-                                    if isinstance(plan, dict):
-                                        plan['energyUtilityName'] = utility_data.get('energyUtilityName', 'Distribuidora')
-                                        all_plans.append(plan)
-                    return all_plans
-                except Exception as e:
-                    return []
-
-      scripts/save_lead_to_supabase.py: |
-        import os
-        import psycopg2
-        import argparse
-        import json
-        from dotenv import load_dotenv
-        load_dotenv()
-        def save_lead(name, phone, email, account_value, client_type, state, city):
-            conn_string = os.getenv("DB_CONNECTION_STRING")
-            if not conn_string:
-                print("CRITICAL ERROR: A variável de ambiente DB_CONNECTION_STRING não foi encontrada.")
-                exit(1)
-            try:
-                with psycopg2.connect(conn_string) as conn:
-                    with conn.cursor() as cur:
-                        additional_data_payload = {"email": email}
-                        additional_data_json = json.dumps(additional_data_payload)
-                        cur.execute(
-                            """
-                            INSERT INTO leads (phone_number, name, invoice_amount, client_type, state, city, additional_data, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                            ON CONFLICT (phone_number) 
-                            DO UPDATE SET
-                                name = EXCLUDED.name,
-                                invoice_amount = EXCLUDED.invoice_amount,
-                                client_type = EXCLUDED.client_type,
-                                state = EXCLUDED.state,
-                                city = EXCLUDED.city,
-                                additional_data = leads.additional_data || %s::jsonb,
-                                updated_at = CURRENT_TIMESTAMP;
-                            """
-                            (phone, name, account_value, client_type, state, city, additional_data_json, additional_data_json)
-                        )
-            except Exception as e:
-                print(f"ERRO CRÍTICO ao salvar o lead: {e}")
-                exit(1)
-
-      manual_representante_serena.markdown: |
-        MANUAL DO REPRESENTANTE SERENA ENERGIA
-        Guia Completo de Produtos e Comissionamento
-        1. O QUE É ENERGIA LIMPA
-        Energia limpa refere-se a fontes de energia que têm um impacto ambiental reduzido, sem emissões de poluentes ou gases de efeito estufa.
-        Benefícios da Energia Limpa:
-        Menos emissões de gases nocivos para a saúde e meio ambiente
-        Contribuição para a redução das mudanças climáticas
-        Fontes renováveis que não esgotam recursos finitos
-        Menor custo operacional e maior eficiência energética
-        2. A SERENA ENERGIA
-        Sobre a Empresa:
-        Mais de 17 anos cruzando as fronteiras da energia sustentável
-        Pioneiros em energia eólica e solar
-        Primeira plataforma digital de comercialização de energia limpa
-        Contratação rápida e 100% digital
-        3. PRODUTOS SERENA
-        4.1 GERAÇÃO DISTRIBUÍDA (GD)
-        Público-Alvo: Grupo B: Todas as residências e empresas em baixa tensão
-        Regiões Atendidas (10 estados): PA, MA, PI, CE, GO, PE, BA, SP (Campinas), MG, MT
-        Benefícios: Economia de até 20% na conta de luz, primeira conta grátis, sem instalação.
-        4.2 MERCADO LIVRE DE ENERGIA
-        Público-Alvo: Grupo A: Todas as empresas em média e alta tensão.
-        Benefícios: Economia de até 40%, liberdade de escolha, livre de bandeiras tarifárias.
-        5. CRITÉRIOS DE PROSPECÇÃO
-        GD: Contas acima de 200kWh. Mercado Livre: Contas acima de R$ 15.000.
-        6. QUEM NÃO PODE CONTRATAR
-        Clientes com faturas pendentes, injeção própria >50%, Tarifa Branca ou Baixa Renda.
-        7. PROCESSO DE CONTRATAÇÃO
-        Fatura única enviada por e-mail após 90 dias.
-        8. SISTEMA DE COMISSIONAMENTO
-        GD: Comissão escalonada de 60% a 100% sobre o valor referência.
-        Mercado Livre: R$ 5,00 por MWh × Volume médio × Tempo de contrato.
+      # Ferramentas e dependências que permanecem
+      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
       
+      # __init__.py para os diretórios
       scripts/__init__.py: ""
       scripts/agent_tools/__init__.py: ""
-      requirements.txt: |
-        {{ py.readFile('requirements.txt') }}
+      
+      # Arquivo de dependências
+      requirements.txt: "{{ read('requirements.txt') }}"
 
     beforeCommands:
       - pip install -r requirements.txt --quiet
 
     script: |
       from scripts.agent_orchestrator import handle_agent_invocation
-
-      # Extrai os dados do webhook do Kestra
       phone_number = "{{ trigger.body.phone }}"
       user_message = "{{ trigger.body.message }}"
-      image_url = "{{ trigger.body.get('media_url') }}" # Usa .get() para ser seguro
-
-      # Invoca o agente
+      image_url = "{{ trigger.body.get('media_url') }}"
       result = handle_agent_invocation(phone_number, user_message, image_url)
-      
-      # A saída do agente (JSON com a resposta) será a saída desta tarefa
       from kestra import Kestra
       Kestra.outputs({'response': result['response']})
 
@@ -378,10 +149,8 @@ tasks:
         "type": "text",
         "text": { "body": "{{ outputs['run-silvia-agent'].vars.response }}" }
       }
-    
-    # Executa apenas se a tarefa anterior tiver sucesso e uma resposta for gerada
     runIf: "{{ outputs['run-silvia-agent'].exitCode == 0 and outputs['run-silvia-agent'].vars.response is not empty }}"
-  
+
   - id: log-processo-ok
     type: io.kestra.plugin.core.log.Log
     runIf: "{{ outputs['run-silvia-agent'].exitCode == 0 }}"

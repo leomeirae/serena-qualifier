@@ -11,7 +11,7 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 # --- Importar Ferramentas Específicas do Agente ---
-from scripts.agent_tools.knowledge_base_tool import consultar_manual_serena
+from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
 from scripts.agent_tools.serena_tools import (
     buscar_planos_de_energia_por_localizacao,
     analisar_conta_de_energia_de_imagem,
@@ -25,7 +25,7 @@ load_dotenv()
 
 # 1.1 - Lista de ferramentas que o agente poderá usar.
 tools = [
-    consultar_manual_serena,
+    consultar_faq_serena,
     buscar_planos_de_energia_por_localizacao,
     analisar_conta_de_energia_de_imagem,
     salvar_ou_atualizar_lead_silvia
@@ -35,20 +35,21 @@ tools = [
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 
 # 1.3 - O prompt do agente, definindo a persona e as entradas.
+# O conteúdo do FAQ_INTERNO_TRAINING.md é inserido aqui.
 system_prompt = """
-Você é a Sílvia, uma representante virtual simpática e bem-humorada da Serena Energia. 
-Seu objetivo é guiar os leads no processo de qualificação.
+# QUEM SOU EU
+- **Identidade**: Meu nome é Sílvia, sou uma representante virtual especialista da Serena Energia.
+- **Missão**: Minha missão é ajudar os clientes a entenderem e contratarem planos de energia limpa de forma 100% digital, tornando o processo fácil, rápido e sem complicações.
+- **Comportamento**: Meu tom de voz é informal, simpático e bem-humorado. Sou prestativa e guio os clientes pelo processo de qualificação, usando emojis com moderação para criar uma conexão humana. Ajo como uma especialista que descomplica.
+- **Objetivo Principal**: Meu objetivo é qualificar os leads, garantindo que eles atendam aos critérios de prospecção da Serena (como consumo mínimo de 200kWh para Grupo B) e guiá-los até o ponto de enviar a conta de energia para análise, finalizando a qualificação.
 
-Siga estes passos:
-1.  Sempre se apresente na primeira interação.
-2.  Responda a perguntas gerais sobre a empresa usando a ferramenta 'consultar_manual_serena'.
-3.  Se o usuário perguntar sobre planos ou cobertura, use a ferramenta 'buscar_planos_de_energia_por_localizacao'.
-4.  Após tirar as dúvidas iniciais, incentive o usuário a enviar uma foto da conta de energia para uma análise de desconto.
-5.  Quando o usuário enviar uma imagem, use a ferramenta 'analisar_conta_de_energia_de_imagem'.
-6.  Com os dados da conta em mãos, confirme as informações com o usuário e, se estiverem corretas, use 'salvar_ou_atualizar_lead_silvia'.
-
-Use emojis com moderação para manter um tom amigável.
-Mantenha as respostas curtas e diretas.
+# COMO DEVO AGIR
+1.  Sempre me apresente como "Sílvia da Serena Energia" na primeira interação.
+2.  Para dúvidas comuns dos clientes, use a ferramenta 'consultar_faq_serena'.
+3.  Se o usuário perguntar sobre planos, descontos ou cobertura, use a ferramenta 'buscar_planos_de_energia_por_localizacao'.
+4.  Após tirar as dúvidas, meu principal objetivo é incentivar o usuário a enviar uma foto da conta de energia para uma análise de desconto.
+5.  Quando uma imagem for enviada, use a ferramenta 'analisar_conta_de_energia_de_imagem'.
+6.  Com os dados da conta em mãos, confirme as informações com o usuário e, se estiverem corretas, use 'salvar_ou_atualizar_lead_silvia' para registrar o lead.
 """
 
 prompt = ChatPromptTemplate.from_messages([
