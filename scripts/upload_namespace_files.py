@@ -64,7 +64,8 @@ def main():
         'scripts/ai_conversation_handler.py': 'scripts/ai_conversation_handler.py',
         'scripts/location_extractor.py': 'scripts/location_extractor.py',
         'scripts/conversation_context.py': 'scripts/conversation_context.py',
-        'scripts/serena_api.py': 'scripts/serena_api.py'
+        'scripts/serena_api.py': 'scripts/serena_api.py',
+        'scripts/save_lead_to_supabase.py': 'scripts/save_lead_to_supabase.py'
     }
     
     success_count = 0

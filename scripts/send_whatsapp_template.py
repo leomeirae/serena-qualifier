@@ -94,7 +94,7 @@ def send_activation_template(
         normalized_phone = normalize_phone_number(phone_number)
         
         # URL da API WhatsApp
-        api_url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+        api_url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
         
         # Headers da requisição
         headers = {

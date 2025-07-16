@@ -354,7 +354,7 @@ Agora vou buscar as melhores opções de energia solar para você. Me informe su
         """Obter URL da mídia do WhatsApp."""
         try:
             # Primeiro, obter informações da mídia
-            media_info_url = f"https://graph.facebook.com/v18.0/{media_id}"
+            media_info_url = f"https://graph.facebook.com/v23.0/{media_id}"
             headers = {"Authorization": f"Bearer {self.whatsapp_token}"}
             
             response = requests.get(media_info_url, headers=headers)

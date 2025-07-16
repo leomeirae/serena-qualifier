@@ -1,185 +1,103 @@
-id: 2_ai_conversation_flow
+id: serena_ai_conversation_flow
 namespace: serena.production
-description: "Workflow de conversação com IA v3 - Processa mensagens do lead e inicia conversa inteligente"
+description: "Concierge Serena AI - Fluxo Conversacional Simplificado v4"
 
 triggers:
-  - id: converse_production_lead
+  - id: webhook_lead_message
     type: io.kestra.plugin.core.trigger.Webhook
     key: converse_production_lead
-    description: "Recebe mensagens do lead para iniciar conversa com IA"
 
 variables:
-  # Configurações do modelo de IA
   ai_model: "gpt-4o-mini"
-  max_tokens: 300
+  max_tokens: 1000
   temperature: 0.7
 
 tasks:
-  # Tarefa: Gerar resposta com IA usando plugin nativo
-  - id: ai_response_generation
-    type: io.kestra.plugin.openai.ChatCompletion
-    apiKey: "{{ secret('SECRET_OPENAI_API_KEY') }}"
-    model: "gpt-4o-mini"
-    prompt: |
-      Você é Serena, assistente virtual da empresa Serena, especializada em qualificação de leads imobiliários.
-      
-      Mensagem do usuário: {{ trigger.body.message }}
-      Telefone: {{ trigger.body.phone }}
-      
-      Responda de forma amigável e profissional. Se for o primeiro contato, solicite educadamente a cidade e estado do usuário para prosseguir com a qualificação.
-      
-      Mantenha o tom conversacional e acolhedor, demonstrando interesse genuíno em ajudar.
 
-  # Tarefa: Processar mensagem e enviar resposta via WhatsApp
-  - id: process-lead-message
+  - id: gerar-resposta-ia
+    type: io.kestra.plugin.openai.ChatCompletion
+    apiKey: "{{ secret('OPENAI_API_KEY') }}"
+    model: "{{ vars.ai_model }}"
+    maxTokens: "{{ vars.max_tokens }}"
+    temperature: "{{ vars.temperature }}"
+    messages:
+      - role: system
+        content: |
+          Você é Serena, assistente virtual da empresa Serena, especialista em qualificação de leads imobiliários. 
+          Sempre solicite cidade e estado do cliente no primeiro contato.
+      - role: user
+        content: |
+          Mensagem recebida: {{ trigger.body.message }}
+          Telefone do cliente: {{ trigger.body.phone }}
+
+  - id: enviar-mensagem-whatsapp
     type: io.kestra.plugin.scripts.python.Script
-    description: "Processa mensagem do lead e envia resposta da IA via WhatsApp"
+    description: "Envia a resposta da IA via WhatsApp"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
-    
-    inputFiles:
-      scripts/__init__.py: |
-        # Scripts package for Serena Qualifier
-        # Contains AI agent tools and integrations
-      scripts/location_extractor.py: "{{ read('scripts/location_extractor.py') }}"
-      scripts/conversation_context.py: "{{ read('scripts/conversation_context.py') }}"
-      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
-    
+
     env:
-      OPENAI_API_KEY: "{{ secret('SECRET_OPENAI_API_KEY') }}"
-      WHATSAPP_API_TOKEN: "{{ secret('SECRET_WHATSAPP_API_TOKEN') }}"
+      OPENAI_RESPONSE: "{{ outputs['gerar-resposta-ia'].choices[0].message.content }}"
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
-      SERENA_API_TOKEN: "{{ secret('SECRET_SERENA_API_TOKEN') }}"
+      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
-      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
-    
+      SECRET_DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+
     beforeCommands:
-      - pip install --upgrade pip
-      - pip install kestra python-dotenv requests psycopg2-binary python-json-logger supabase openai
-    
+      - pip install requests psycopg2-binary python-json-logger supabase kestra
+
     script: |
       import os
-      import logging
       import requests
-      import json
-      
-      # Configurar logging
-      logging.basicConfig(level=logging.INFO)
-      logger = logging.getLogger(__name__)
-      
-      # Verificar variáveis de ambiente críticas
-      logger.info("🔍 Verificando configuração do ambiente...")
-      
+      from kestra import Kestra
+
+      message_text = os.getenv('OPENAI_RESPONSE')
+      phone_number = '{{ trigger.body.phone }}'
       whatsapp_token = os.getenv('WHATSAPP_API_TOKEN')
       phone_number_id = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
-      
-      logger.info(f"📱 WHATSAPP_API_TOKEN: {'✅ Configurada' if whatsapp_token else '❌ Não configurada'}")
-      logger.info(f"📱 WHATSAPP_PHONE_NUMBER_ID: {'✅ Configurada' if phone_number_id else '❌ Não configurada'}")
-      
-      # Dados do trigger e resposta da IA
-      phone_number = '{{ trigger.body.phone }}'
-      message = '{{ trigger.body.message }}'
-      ai_response = '{{ outputs["ai_response_generation"].choices[0].message.content }}'
-      
-      # Log da mensagem recebida
-      logger.info(f"📱 Mensagem recebida de {phone_number}")
-      logger.info(f"💬 Conteúdo: {message}")
-      logger.info(f"🤖 Resposta IA: {ai_response}")
-      
-      # Função para enviar mensagem via WhatsApp
-      def send_whatsapp_message(phone, message_text):
-          try:
-              url = f"https://graph.facebook.com/v17.0/{phone_number_id}/messages"
-              headers = {
-                  'Authorization': f'Bearer {whatsapp_token}',
-                  'Content-Type': 'application/json'
-              }
-              
-              data = {
-                  "messaging_product": "whatsapp",
-                  "to": phone,
-                  "type": "text",
-                  "text": {"body": message_text}
-              }
-              
-              response = requests.post(url, headers=headers, json=data)
-              
-              if response.status_code == 200:
-                  result = response.json()
-                  message_id = result.get('messages', [{}])[0].get('id', 'N/A')
-                  logger.info(f"✅ Mensagem enviada para {phone}: {message_id}")
-                  return message_id
-              else:
-                  logger.error(f"❌ Erro ao enviar mensagem: {response.status_code} - {response.text}")
-                  return None
-                  
-          except Exception as e:
-              logger.error(f"❌ Erro ao enviar mensagem: {str(e)}")
-              return None
-      
-      # Tentar enviar mensagem
-      whatsapp_message_id = send_whatsapp_message(phone_number, ai_response)
-      
-      # Salvar contexto da conversa
-      try:
-          from scripts.conversation_context import save_conversation_context
-          save_conversation_context(
-              phone_number.replace('55', ''), 
-              {'status': 'active', 'interactions': 1, 'stage': 'initial'}
-          )
-          logger.info("💾 Contexto salvo com sucesso")
-      except Exception as e:
-          logger.warning(f"⚠️ Erro ao salvar contexto: {str(e)}")
-      
-      # Outputs para logging - usando formato correto do Kestra
-      from kestra import Kestra
-      
-      # Usar o sistema de outputs do Kestra
+
+      url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+      headers = {
+          'Authorization': f'Bearer {whatsapp_token}',
+          'Content-Type': 'application/json'
+      }
+      data = {
+          "messaging_product": "whatsapp",
+          "to": phone_number,
+          "type": "text",
+          "text": {"body": message_text}
+      }
+
+      response = requests.post(url, headers=headers, json=data)
+
+      enviado = response.status_code == 200
+
+      if enviado:
+          print("✅ Mensagem enviada via WhatsApp.")
+      else:
+          print(f"❌ Falha no envio: {response.status_code}")
+          print(response.text)
+
       Kestra.outputs({
-          'response_sent': str(whatsapp_message_id is not None),
-          'ai_response': ai_response,
-          'whatsapp_message_id': whatsapp_message_id or 'N/A',
-          'lead_phone': phone_number
+          "whatsapp_status": response.status_code,
+          "whatsapp_sent": str(enviado)
       })
-      
-      # Logs adicionais para debug
-      logger.info(f"📊 Resultado: {whatsapp_message_id is not None}")
-      logger.info(f"🤖 Resposta IA: {ai_response}")
-      logger.info(f"📱 WhatsApp ID: {whatsapp_message_id or 'N/A'}")
-      logger.info(f"📞 Telefone: {phone_number}")
 
-  # Log de sucesso da conversa
-  - id: log-conversation-success
+  - id: log-processo-ok
     type: io.kestra.plugin.core.log.Log
-    description: "Registra sucesso do processamento da conversa"
-    runIf: "{{ outputs['process-lead-message'].response_sent is defined and outputs['process-lead-message'].response_sent == 'true' }}"
+    runIf: "{{ outputs['enviar-mensagem-whatsapp'].whatsapp_sent == 'true' }}"
     message: |
-      ✅ CONVERSA COM IA INICIADA COM SUCESSO
-      =====================================
-      Phone: {{ trigger.body.phone }}
-      Message Received: {{ trigger.body.message }}
-      AI Response: {{ outputs['process-lead-message'].ai_response }}
-      WhatsApp Message ID: {{ outputs['process-lead-message'].whatsapp_message_id }}
-      Model Used: {{ vars.ai_model }}
-      OpenAI Response ID: {{ outputs['ai_response_generation'].id }}
-      Token Usage: {{ outputs['ai_response_generation'].usage.total_tokens }}
-      Timestamp: {{ execution.startDate }}
-      
-      O lead deve receber a solicitação de cidade e estado para prosseguir.
+      ✅ Lead respondido com sucesso.
+      Telefone: {{ trigger.body.phone }}
+      Resposta IA enviada via WhatsApp.
 
-  # Log de erro no processamento
-  - id: log-conversation-error
+  - id: log-processo-erro
     type: io.kestra.plugin.core.log.Log
-    description: "Registra erro no processamento da conversa"
-    runIf: "{{ outputs['process-lead-message'].response_sent is not defined or outputs['process-lead-message'].response_sent != 'true' }}"
     level: ERROR
+    runIf: "{{ outputs['enviar-mensagem-whatsapp'].whatsapp_sent != 'true' }}"
     message: |
-      ❌ ERRO NO PROCESSAMENTO DA CONVERSA COM IA
-      ==========================================
-      Phone: {{ trigger.body.phone }}
-      Message Received: {{ trigger.body.message }}
-      Model: {{ vars.ai_model }}
-      Timestamp: {{ execution.startDate }}
-      
-      Verificar logs do processamento e configurações do WhatsApp API. 
+      ❌ Erro no envio da resposta ao lead.
+      Telefone: {{ trigger.body.phone }}
+      Verifique API do WhatsApp ou variáveis do ambiente.

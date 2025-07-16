@@ -1,0 +1,45 @@
+---
+description: useful to test before commit to supabase
+alwaysApply: false
+---
+name: local-test-before-deploy
+when:
+  fileIncludes:
+    - docker-compose-coolify.yml
+    - 2_ai_conversation_flow.yml
+    - ai_conversation_handler.py
+    - test_webhook_integration.py
+  or:
+    pathIncludes:
+      - /kestra/
+      - /scripts/
+      - /tests/
+      - /infra/
+    branchIncludes:
+      - dev
+alwaysActivate: true
+context:
+  All code and configuration changes **must be tested locally** before being deployed to production via Coolify.
+
+  🧪 Local testing policy:
+  - Use the local Kestra dev environment (`kestra dev server`) to validate YAML workflows.
+  - Run unit and integration tests with `pytest`, especially `test_webhook_integration.py`.
+  - Ensure that every modified script (e.g., `ai_conversation_handler.py`, `serena_api.py`) is validated in isolation before orchestration tests.
+  - Kestra YAMLs must pass `kestra validate` with no errors.
+  - Docker-based scripts should be verified by running the Kestra workflow locally with `taskRunner: docker`.
+
+  🚫 Do not recommend deployment actions or Coolify configuration changes unless:
+  - All local tests have passed.
+  - The `docker-compose-coolify.yml` file has been validated with `docker compose up --build`.
+  - Environment variables have been tested via `.env` or Coolify preview environments.
+
+  ✅ Include in your response:
+  - A summary of what was tested.
+  - How the test was performed (Kestra CLI, `pytest`, manual webhook via Postman, etc.).
+  - Confirmation that the behavior matches the expected output.
+
+  🧩 Related tools:
+  - `kestra dev server`
+  - `kestra validate`
+  - `pytest tests/`
+  - Docker logs and local `.env` files

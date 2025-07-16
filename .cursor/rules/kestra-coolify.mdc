@@ -1,0 +1,40 @@
+---
+alwaysApply: true
+---
+name: kestra-coolify-infra
+when:
+  fileIncludes: 
+    - docker-compose-coolify.yml
+    - docker-compose.yml
+    - kestra/config/
+  or:
+    pathIncludes: 
+      - /kestra/
+      - /infrastructure/
+    branchIncludes:
+      - dev
+      - main
+    environmentVariable:
+      name: KESTRA_ENV
+      value: production
+alwaysActivate: true
+context:
+  You are working with a self-hosted instance of **Kestra**, deployed via **Coolify** using the open-source version.
+
+  Key infrastructure details:
+  - All services are containerized with Docker and defined in `docker-compose-coolify.yml`.
+  - Workflows are located in the `kestra/workflows/` directory and written in YAML.
+  - Kestra is used as the orchestrator for messaging and AI workflows.
+  - Logs and runtime issues often stem from missing ENV variables, container misconfigurations, or script errors in Docker-based tasks.
+
+  Debugging guidance:
+  - Always check for `Kestra.outputs(...)` usage and `runIf` conditions that rely on those outputs.
+  - Errors such as `PebbleException`, connection timeouts, or missing context often originate from faulty scripts or YAML syntax inconsistencies.
+  - If you see errors from Python tasks within Kestra, inspect the Docker image (`python:3.11-slim`), pip dependencies, and ENV bindings.
+
+  Workflow integration:
+  - All workflows must be compatible with the Kestra CLI for local validation (`kestra validate`).
+  - AI integrations rely on `openai`, and WhatsApp integrations rely on external APIs authenticated via secrets provided in ENV variables.
+
+  Deployment behavior:
+  - Deployments and environment variables are managed by Coolify. Persistent failures may require checking Coolify logs, environment settings, or restarting containers.

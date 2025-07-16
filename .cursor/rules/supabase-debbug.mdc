@@ -1,0 +1,55 @@
+---
+description: helpful to debugg supabase
+alwaysApply: false
+---
+name: kestra-ai-supabase-debug
+when:
+  fileIncludes:
+    - ai_conversation_handler.py
+    - serena_api.py
+    - conversation_context.py
+    - 2_ai_conversation_flow.yml
+  or:
+    pathIncludes:
+      - /scripts/
+      - /kestra/workflows/
+      - /tests/
+    branchIncludes:
+      - dev
+      - main
+alwaysActivate: true
+context:
+  You are responsible for maintaining the **AI conversation pipeline**, which connects WhatsApp input to OpenAI and Supabase through a Kestra workflow.
+
+  ⚙️ Key architecture:
+  - The main orchestration happens in `2_ai_conversation_flow.yml`, triggered by a webhook from WhatsApp.
+  - The core processing logic is in `ai_conversation_handler.py`, which:
+    1. Extracts the phone number and message.
+    2. Looks up the lead in Supabase using `get_lead_data_from_supabase()` (found in `serena_api.py`).
+    3. Calls OpenAI via the `openai` SDK.
+    4. Sends the response back to WhatsApp and logs context via `conversation_context.py`.
+
+  🧪 Debugging checklist:
+  - If the AI response is `"Desculpe, tive um problema de conexão"`, it's likely due to:
+    - Supabase returning `None` (lead não encontrado),
+    - erro de autenticação (`anon key` ausente ou errada),
+    - ou falha na chamada à OpenAI (`Connection error`).
+  - Normalize o número de telefone antes da busca. O formato ideal é **DDD + número** (ex: `81999998888`).
+  - A função `get_lead_data_from_supabase()` deve:
+    - Incluir headers `apikey` e `Authorization`.
+    - Verificar `status_code` da resposta e fazer log do corpo em caso de erro.
+
+  🛠️ Output expectations:
+  - O script deve retornar um dicionário com a chave `success: True/False`.
+  - O `Kestra.outputs()` precisa sempre definir `response_sent`, mesmo em erro, para que `runIf` não quebre com `PebbleException`.
+
+  🧩 Testing guidance:
+  - Simule chamadas com `test_webhook_integration.py` (ou crie esse teste, se não existir).
+  - Teste local com `kestra dev server` + webhook manual no Insomnia/Postman.
+  - Para OpenAI, use modelo leve (`gpt-4o-mini`) com `max_tokens=300` para garantir performance.
+
+  🔐 Environment dependencies:
+  - SUPABASE_URL e SUPABASE_ANON_KEY devem estar presentes no `env` da task `process-lead-message`.
+  - OPENAI_API_KEY precisa estar correta e ativa.
+  - Toda lógica de fallback deve ser defensiva: evite que `None` ou `undefined` causem falhas silenciosas.
+

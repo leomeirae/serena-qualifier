@@ -59,10 +59,11 @@ tasks:
       # Dados do lead
       lead_data = {
           "name":          "{{ trigger.body.name }}",
-          "email":         "{{ trigger.body.email }}",
           "whatsapp":      "{{ trigger.body.whatsapp }}",
           "account_value": "{{ trigger.body.account_value }}",
-          "client_type":   "{{ trigger.body.client_type }}"
+          "client_type":   "{{ trigger.body.client_type }}",
+          "city":          "{{ trigger.body.cidade }}",
+          "state":         "{{ trigger.body.estado }}"
       }
 
       try:
@@ -71,19 +72,20 @@ tasks:
 
           upsert_query = """
             INSERT INTO leads
-              (phone_number, name, email, invoice_amount, additional_data, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+              (phone_number, name, invoice_amount, client_type, city, state, additional_data, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (phone_number) DO UPDATE
-              SET name           = EXCLUDED.name,
-                  email          = EXCLUDED.email,
-                  invoice_amount = EXCLUDED.invoice_amount,
-                  additional_data= EXCLUDED.additional_data,
-                  updated_at     = NOW()
+              SET name            = EXCLUDED.name,
+                  invoice_amount  = EXCLUDED.invoice_amount,
+                  client_type     = EXCLUDED.client_type,
+                  city            = EXCLUDED.city,
+                  state           = EXCLUDED.state,
+                  additional_data = EXCLUDED.additional_data,
+                  updated_at      = NOW()
             RETURNING id, phone_number, name;
           """
 
           additional_data = {
-              "client_type": lead_data["client_type"],
               "source":      "lead_activation_flow",
               "form_data":   {"account_value": lead_data["account_value"]}
           }
@@ -93,8 +95,10 @@ tasks:
             (
               lead_data["whatsapp"],
               lead_data["name"],
-              lead_data["email"],
               float(lead_data["account_value"]),
+              lead_data["client_type"],
+              lead_data["city"],
+              lead_data["state"],
               json.dumps(additional_data)
             )
           )
@@ -372,7 +376,7 @@ tasks:
       - pip install kestra python-dotenv requests
     
     env:
-      WHATSAPP_API_TOKEN:       "{{ secret('SECRET_WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_API_TOKEN:       "{{ secret('WHATSAPP_API_TOKEN') }}"
       WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
       
     script: |
