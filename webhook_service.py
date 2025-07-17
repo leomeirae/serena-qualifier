@@ -70,7 +70,7 @@ app.add_middleware(
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "serena_webhook_verify_token")
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 KESTRA_BASE_URL = os.getenv("KESTRA_API_URL", "http://kestra:8081")
-KESTRA_WEBHOOK_URL = f"{KESTRA_BASE_URL}/api/v1/executions/webhook/serena.production/2_ai_conversation_flow/converse_production_lead"
+KESTRA_WEBHOOK_URL = f"{KESTRA_BASE_URL}/api/v1/executions/webhook/serena.production/2_ai_conversation_flow_coolify_redis/converse_production_lead"
 CHATWOOT_WEBHOOK_URL = os.getenv("CHATWOOT_WEBHOOK_URL")
 
 class WhatsAppMessage(BaseModel):
