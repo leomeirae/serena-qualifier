@@ -23,8 +23,7 @@ tasks:
 
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
-      DB_CONNECTION_STRING: "{{ secret('SECRET_DB_CONNECTION_STRING') }}"
-      SECRET_DB_CONNECTION_STRING: "{{ secret('SECRET_DB_CONNECTION_STRING') }}"
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       
@@ -43,8 +42,37 @@ tasks:
       scripts/__init__.py: ""
       scripts/agent_tools/__init__.py: ""
       
-      # Arquivo de dependências
-      requirements.txt: "{{ read('requirements.txt') }}"
+      # Arquivo de dependências com caminho explícito
+      requirements.txt: |
+        fastapi==0.110.1
+        uvicorn[standard]==0.23.1
+        requests==2.31.0
+        supabase==2.0.2
+        openai>=1.40.0
+        anthropic==0.25.0
+        google-generativeai==0.7.0
+        pydantic==2.3.0
+        pytesseract==0.3.10
+        pdf2image==1.16.3
+        opencv-python==4.8.1.78
+        python-dotenv==1.0.1
+        psycopg2-binary==2.9.9
+        httpx==0.24.1
+        tenacity==8.2.2
+
+        # LangChain Core (versões flexíveis - deixar pip resolver)
+        langchain>=0.2.0
+        langchain-openai>=0.1.0
+        langchain-community>=0.2.0
+
+        # RAG dependencies (NOVO)
+        faiss-cpu==1.8.0
+        tiktoken==0.7.0
+        python-json-logger==2.0.7
+        kestra==0.18.0
+        urllib3==2.2.1
+        chardet==5.2.0
+        certifi==2024.7.4
 
     beforeCommands:
       - pip install -r requirements.txt --quiet
