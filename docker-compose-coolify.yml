@@ -87,6 +87,24 @@ services:
   # Migration is handled automatically by standalone server
   # Removing separate migration service to avoid restart loops
 
+  kestra-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.kestra_agent
+    image: kestra-agent:latest
+    volumes:
+      - ./scripts:/app/scripts
+      - ./requirements.txt:/app/requirements.txt
+    environment:
+      TZ: America/Sao_Paulo
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+      DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+    networks:
+      - coolify
+    restart: unless-stopped
+
   kestra:
     image: kestra/kestra:v0.23.6
     user: root
@@ -104,6 +122,8 @@ services:
       # Configurações para proxy reverso HTTPS
       MICRONAUT_SERVER_PROXY_TARGET_HEADER: "X-Forwarded-Proto"
       MICRONAUT_SERVER_PROXY_FORWARDED_HEADER: "X-Forwarded-For"
+      # Referência para a imagem do agente
+      KESTRA_AGENT_IMAGE: "kestra-agent:latest"
       # Secrets para função secret() nos workflows
       SECRET_OPENAI_API_KEY: "${SECRET_OPENAI_API_KEY}"
       SECRET_WHATSAPP_API_TOKEN: "${SECRET_WHATSAPP_API_TOKEN}"

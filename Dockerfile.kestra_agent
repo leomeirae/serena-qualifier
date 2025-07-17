@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copiar requirements
+COPY requirements.txt .
+
+# Instalar dependências
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Criar estrutura de diretórios necessária
+RUN mkdir -p /app/scripts/agent_tools
+
+# Configurar timezone
+ENV TZ=America/Sao_Paulo
+
+# Manter o container rodando
+CMD ["tail", "-f", "/dev/null"]
