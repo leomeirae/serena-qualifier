@@ -21,10 +21,13 @@ tasks:
     type: io.kestra.plugin.scripts.python.Script
     description: "Descobre Redis usando MCP Server do Coolify"
     allowFailure: true
+    beforeCommands:
+      - pip install kestra  # ✅ Instalar módulo kestra
     script: |
       import json
       import os
       from pathlib import Path
+      from kestra import Kestra
       
       # Tentar carregar configuração Redis descoberta
       config_path = Path("coolify_redis_config.json")
@@ -33,9 +36,8 @@ tasks:
               config = json.load(f)
           print(f"✅ Redis descoberto: {config.get('redis_url', 'N/A')}")
       else:
-          print("⚠️  Configuração Redis não encontrada, usando padrão")
+          print("⚠️ Configuração Redis não encontrada, usando padrão")
       
-      from kestra import Kestra
       Kestra.outputs({'redis_discovered': config_path.exists()})
 
   # 2. Verificar primeiro contato (KV Store nativo)
@@ -63,6 +65,8 @@ tasks:
   - id: run-silvia-agent-with-coolify-memory
     type: io.kestra.plugin.scripts.python.Script
     description: "Agente Sílvia com Memória Redis via Coolify"
+    beforeCommands:
+      - pip install kestra  # ✅ Instalar módulo kestra
 
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
@@ -85,12 +89,14 @@ tasks:
       import json
       import os
       from scripts.agent_orchestrator import handle_agent_invocation
+      from kestra import Kestra
       
       phone_number = "{{ trigger.body.phone }}"
       user_message = "{{ trigger.body.message }}"
       
-      # Verificar se é primeiro contato
-      is_first_contact = {{ outputs['check_first_contact'].value == null | toString | title }}
+      # ✅ Verificar primeiro contato com conversão adequada
+      first_contact_value = "{{ outputs['check_first_contact'].value }}"
+      is_first_contact = first_contact_value == "null" or first_contact_value == "" or first_contact_value is None
       
       # Contexto da conversa (Redis via Coolify)
       conversation_context = {}
@@ -132,7 +138,6 @@ tasks:
       result = handle_agent_invocation(phone_number, user_message)
       
       # Saída otimizada
-      from kestra import Kestra
       Kestra.outputs({
           'response': result['response'],
           'memory_context': memory_context,
