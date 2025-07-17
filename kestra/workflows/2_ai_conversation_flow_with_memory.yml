@@ -1,0 +1,218 @@
+id: 2_ai_conversation_flow_with_native_memory
+namespace: serena.production
+description: "Fluxo de Conversa com IA v11 - Memória Nativa Kestra"
+
+triggers:
+  - id: webhook_lead_message
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_production_lead
+    description: "Recebe mensagens do lead via WhatsApp Webhook"
+
+variables:
+  ai_model: "gpt-4o-mini"
+  max_tokens: 1500
+  temperature: 0.7
+  redis_url: "redis://localhost:6379/0"
+
+tasks:
+  # 1. Verificar se é primeiro contato (KV Store)
+  - id: check_first_contact
+    type: io.kestra.plugin.core.kv.Get
+    key: "first_contact_{{ trigger.body.phone }}"
+    
+  # 2. Recuperar contexto da conversa (Redis)
+  - id: get_conversation_context
+    type: io.kestra.plugin.redis.string.Get
+    url: "{{ vars.redis_url }}"
+    key: "context_{{ trigger.body.phone }}"
+    serdeType: JSON
+    allowFailure: true
+    
+  # 3. Recuperar histórico recente (Redis List)
+  - id: get_recent_history
+    type: io.kestra.plugin.redis.list.ListPop
+    url: "{{ vars.redis_url }}"
+    key: "history_{{ trigger.body.phone }}"
+    count: 5  # Últimas 5 mensagens
+    allowFailure: true
+
+  # 4. Executar Agente Sílvia com contexto
+  - id: run-silvia-agent-with-context
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Executa o Agente de IA 'Sílvia' com contexto de memória"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+
+    env:
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
+      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+      
+    inputFiles:
+      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
+      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
+      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+      scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
+      scripts/agent_tools/__init__.py: ""
+
+    script: |
+      import json
+      from scripts.agent_orchestrator import handle_agent_invocation
+      
+      phone_number = "{{ trigger.body.phone }}"
+      user_message = "{{ trigger.body.message }}"
+      
+      # Preparar contexto de memória
+      is_first_contact = {{ outputs['check_first_contact'].value == null }}
+      conversation_context = {{ outputs['get_conversation_context'].value | default('{}') }}
+      recent_history = {{ outputs['get_recent_history'].value | default('[]') }}
+      
+      # Construir prompt com contexto
+      memory_context = {
+          'is_first_contact': is_first_contact,
+          'conversation_context': conversation_context,
+          'recent_history': recent_history,
+          'phone_number': phone_number
+      }
+      
+      # Executar agente com contexto
+      result = handle_agent_invocation(phone_number, user_message, memory_context)
+      
+      from kestra import Kestra
+      Kestra.outputs({
+          'response': result['response'],
+          'memory_context': memory_context,
+          'conversation_data': {
+              'user_message': user_message,
+              'ai_response': result['response'],
+              'timestamp': '{{ now() }}'
+          }
+      })
+
+  # 5. Marcar primeiro contato (se necessário)
+  - id: mark_first_contact
+    type: io.kestra.plugin.core.kv.Set
+    key: "first_contact_{{ trigger.body.phone }}"
+    value: "{{ now() }}"
+    runIf: "{{ outputs['check_first_contact'].value == null }}"
+
+  # 6. Atualizar contexto da conversa (Redis)
+  - id: update_conversation_context
+    type: io.kestra.plugin.redis.string.Set
+    url: "{{ vars.redis_url }}"
+    key: "context_{{ trigger.body.phone }}"
+    value: |
+      {
+        "phone": "{{ trigger.body.phone }}",
+        "last_interaction": "{{ now() }}",
+        "conversation_state": "active",
+        "lead_data": {{ outputs['run-silvia-agent-with-context'].vars.memory_context.conversation_context | default('{}') }},
+        "total_messages": {{ (outputs['get_recent_history'].value | default([]) | length) + 1 }}
+      }
+    serdeType: JSON
+    ttl: PT48H  # Expira em 48 horas
+
+  # 7. Adicionar ao histórico (Redis List)
+  - id: add_to_history
+    type: io.kestra.plugin.redis.list.ListPush
+    url: "{{ vars.redis_url }}"
+    key: "history_{{ trigger.body.phone }}"
+    value: |
+      {
+        "type": "exchange",
+        "user": "{{ trigger.body.message }}",
+        "assistant": "{{ outputs['run-silvia-agent-with-context'].vars.response }}",
+        "timestamp": "{{ now() }}"
+      }
+    position: RIGHT  # Adiciona no final da lista
+    
+  # 8. Limitar histórico (manter últimas 20 mensagens usando script Python)
+  - id: trim_history
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      REDIS_URL: "{{ vars.redis_url }}"
+      PHONE_KEY: "history_{{ trigger.body.phone }}"
+    beforeCommands:
+      - pip install redis
+    script: |
+      import redis
+      import os
+      
+      # Conectar ao Redis
+      redis_client = redis.from_url(os.getenv('REDIS_URL'))
+      phone_key = os.getenv('PHONE_KEY')
+      
+      # Manter apenas as últimas 20 mensagens
+      current_length = redis_client.llen(phone_key)
+      if current_length > 20:
+          # Remove elementos do início até sobrar apenas 20
+          redis_client.ltrim(phone_key, -20, -1)
+          print(f"Histórico trimado. Mantidas últimas 20 mensagens.")
+      else:
+          print(f"Histórico atual: {current_length} mensagens. Não é necessário trim.")
+    allowFailure: true
+
+  # 9. Salvar histórico persistente (PostgreSQL - opcional)
+  - id: save_to_persistent_storage
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: "{{ secret('DB_CONNECTION_STRING') }}"
+    sql: |
+      INSERT INTO conversation_logs (
+        phone_number, 
+        user_message, 
+        ai_response, 
+        context_data,
+        created_at
+      ) VALUES (
+        '{{ trigger.body.phone }}',
+        '{{ trigger.body.message }}',
+        '{{ outputs["run-silvia-agent-with-context"].vars.response }}',
+        '{{ outputs["run-silvia-agent-with-context"].vars.memory_context | toJson }}',
+        NOW()
+      )
+    allowFailure: true
+
+  # 10. Enviar resposta WhatsApp
+  - id: send-whatsapp-reply
+    type: io.kestra.plugin.core.http.Request
+    uri: "https://graph.facebook.com/v20.0/599096403294262/messages"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ secret('WHATSAPP_API_TOKEN') }}"
+      Content-Type: "application/json"
+    body: |
+      {
+        "messaging_product": "whatsapp",
+        "to": "{{ trigger.body.phone }}",
+        "type": "text",
+        "text": { "body": {{ outputs['run-silvia-agent-with-context'].vars.response | json }} }
+      }
+    runIf: "{{ outputs['run-silvia-agent-with-context'].exitCode == 0 and outputs['run-silvia-agent-with-context'].vars.response != null and outputs['run-silvia-agent-with-context'].vars.response != '' }}"
+
+  # 11. Log de sucesso
+  - id: log-processo-ok
+    type: io.kestra.plugin.core.log.Log
+    runIf: "{{ outputs['run-silvia-agent-with-context'].exitCode == 0 }}"
+    message: |
+      ✅ Lead respondido com MEMÓRIA NATIVA.
+      Telefone: {{ trigger.body.phone }}
+      Primeiro contato: {{ outputs['check_first_contact'].value == null }}
+      Mensagens no histórico: {{ (outputs['get_recent_history'].value | default([]) | length) + 1 }}
+      Resposta: {{ outputs['run-silvia-agent-with-context'].vars.response }}
+
+  # 12. Log de erro
+  - id: log-processo-erro
+    type: io.kestra.plugin.core.log.Log
+    level: ERROR
+    runIf: "{{ outputs['run-silvia-agent-with-context'].exitCode != 0 }}"
+    message: |
+      ❌ Erro no Agente Sílvia com Memória Nativa.
+      Telefone: {{ trigger.body.phone }}
+      Erro: {{ outputs['run-silvia-agent-with-context'].stderr }} 

@@ -1,0 +1,267 @@
+id: 2_ai_conversation_flow_coolify_redis
+namespace: serena.production
+description: "Fluxo de Conversa com IA - Memória Redis via Coolify MCP Discovery"
+
+triggers:
+  - id: webhook_lead_message
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_production_lead
+    description: "Recebe mensagens do lead via WhatsApp Webhook"
+
+variables:
+  ai_model: "gpt-4o-mini"
+  max_tokens: 1500
+  temperature: 0.7
+  # Redis descoberto via MCP Server do Coolify
+  redis_url: "redis://redis:6379/0"  # Será atualizado pelo script discovery
+
+tasks:
+  # 1. Descobrir Redis no Coolify (opcional - para debug)
+  - id: discover_redis_info
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Descobre Redis usando MCP Server do Coolify"
+    allowFailure: true
+    script: |
+      import json
+      import os
+      from pathlib import Path
+      
+      # Tentar carregar configuração Redis descoberta
+      config_path = Path("coolify_redis_config.json")
+      if config_path.exists():
+          with open(config_path, 'r') as f:
+              config = json.load(f)
+          print(f"✅ Redis descoberto: {config.get('redis_url', 'N/A')}")
+      else:
+          print("⚠️  Configuração Redis não encontrada, usando padrão")
+      
+      from kestra import Kestra
+      Kestra.outputs({'redis_discovered': config_path.exists()})
+
+  # 2. Verificar primeiro contato (KV Store nativo)
+  - id: check_first_contact
+    type: io.kestra.plugin.core.kv.Get
+    key: "first_contact_{{ trigger.body.phone }}"
+    
+  # 3. Recuperar contexto da conversa (Redis via Coolify)
+  - id: get_conversation_context
+    type: io.kestra.plugin.redis.string.Get
+    url: "{{ vars.redis_url }}"
+    key: "silvia_context_{{ trigger.body.phone }}"
+    serdeType: JSON
+    allowFailure: true
+    
+  # 4. Recuperar histórico recente (Redis List)
+  - id: get_recent_history
+    type: io.kestra.plugin.redis.list.ListPop
+    url: "{{ vars.redis_url }}"
+    key: "silvia_history_{{ trigger.body.phone }}"
+    count: 5  # Últimas 5 trocas
+    allowFailure: true
+
+  # 5. Executar Agente Sílvia com memória
+  - id: run-silvia-agent-with-coolify-memory
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Agente Sílvia com Memória Redis via Coolify"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+
+    env:
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+      REDIS_URL: "{{ vars.redis_url }}"
+      
+    inputFiles:
+      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
+      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
+      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+      scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
+      scripts/agent_tools/__init__.py: ""
+
+    script: |
+      import json
+      import os
+      from scripts.agent_orchestrator import handle_agent_invocation
+      
+      phone_number = "{{ trigger.body.phone }}"
+      user_message = "{{ trigger.body.message }}"
+      
+      # Verificar se é primeiro contato
+      is_first_contact = {{ outputs['check_first_contact'].value == null }}
+      
+      # Contexto da conversa (Redis via Coolify)
+      conversation_context = {}
+      try:
+          ctx_data = {{ outputs['get_conversation_context'].value | default('{}') }}
+          if ctx_data and isinstance(ctx_data, dict):
+              conversation_context = ctx_data
+      except Exception as e:
+          print(f"⚠️  Erro ao carregar contexto: {e}")
+          conversation_context = {}
+      
+      # Histórico recente
+      recent_history = []
+      try:
+          hist_data = {{ outputs['get_recent_history'].value | default('[]') }}
+          if hist_data and isinstance(hist_data, list):
+              recent_history = hist_data
+      except Exception as e:
+          print(f"⚠️  Erro ao carregar histórico: {e}")
+          recent_history = []
+      
+      # Construir contexto melhorado
+      memory_context = {
+          "phone_number": phone_number,
+          "is_first_contact": is_first_contact,
+          "conversation_context": conversation_context,
+          "recent_history": recent_history,
+          "redis_url": os.getenv("REDIS_URL", ""),
+          "total_previous_messages": len(recent_history)
+      }
+      
+      # Log do contexto
+      print(f"📱 Processando: {phone_number}")
+      print(f"🔄 Primeiro contato: {is_first_contact}")
+      print(f"📚 Histórico: {len(recent_history)} mensagens")
+      print(f"🎯 Redis: {memory_context['redis_url']}")
+      
+      # Executar agente
+      result = handle_agent_invocation(phone_number, user_message)
+      
+      # Saída otimizada
+      from kestra import Kestra
+      Kestra.outputs({
+          'response': result['response'],
+          'memory_context': memory_context,
+          'performance': {
+              'redis_connected': bool(memory_context['redis_url']),
+              'context_loaded': bool(conversation_context),
+              'history_loaded': len(recent_history) > 0
+          }
+      })
+
+  # 6. Marcar primeiro contato (KV Store)
+  - id: mark_first_contact
+    type: io.kestra.plugin.core.kv.Set
+    key: "first_contact_{{ trigger.body.phone }}"
+    value: "{{ now() }}"
+    runIf: "{{ outputs['check_first_contact'].value == null }}"
+
+  # 7. Atualizar contexto no Redis (via Coolify)
+  - id: update_context_in_coolify_redis
+    type: io.kestra.plugin.redis.string.Set
+    url: "{{ vars.redis_url }}"
+    key: "silvia_context_{{ trigger.body.phone }}"
+    value: |
+      {
+        "phone": "{{ trigger.body.phone }}",
+        "last_interaction": "{{ now() }}",
+        "conversation_state": "active",
+        "total_messages": {{ (outputs['get_recent_history'].value | default([]) | length) + 1 }},
+        "first_contact": {{ outputs['run-silvia-agent-with-coolify-memory'].vars.memory_context.is_first_contact }},
+        "redis_source": "coolify_discovered",
+        "last_message_preview": "{{ trigger.body.message | length > 50 ? trigger.body.message[:50] + '...' : trigger.body.message }}"
+      }
+    serdeType: JSON
+    ttl: PT48H  # 48 horas
+    allowFailure: true
+
+  # 8. Adicionar ao histórico (Redis List via Coolify)
+  - id: add_to_coolify_redis_history
+    type: io.kestra.plugin.redis.list.ListPush
+    url: "{{ vars.redis_url }}"
+    key: "silvia_history_{{ trigger.body.phone }}"
+    value: |
+      {
+        "exchange_id": "{{ random() }}",
+        "user": "{{ trigger.body.message }}",
+        "assistant": "{{ outputs['run-silvia-agent-with-coolify-memory'].vars.response }}",
+        "timestamp": "{{ now() }}",
+        "source": "coolify_redis"
+      }
+    position: RIGHT
+    allowFailure: true
+    
+  # 9. Limitar histórico (manter últimas 15 mensagens usando script Python)
+  - id: trim_coolify_redis_history
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      REDIS_URL: "{{ vars.redis_url }}"
+      PHONE_KEY: "silvia_history_{{ trigger.body.phone }}"
+    beforeCommands:
+      - pip install redis
+    script: |
+      import redis
+      import os
+      
+      # Conectar ao Redis
+      redis_client = redis.from_url(os.getenv('REDIS_URL'))
+      phone_key = os.getenv('PHONE_KEY')
+      
+      # Manter apenas as últimas 15 mensagens
+      current_length = redis_client.llen(phone_key)
+      if current_length > 15:
+          # Remove elementos do início até sobrar apenas 15
+          redis_client.ltrim(phone_key, -15, -1)
+          print(f"Histórico trimado. Mantidas últimas 15 mensagens.")
+      else:
+          print(f"Histórico atual: {current_length} mensagens. Não é necessário trim.")
+    allowFailure: true
+
+  # 10. Salvar log estruturado (opcional - PostgreSQL)
+  - id: log_to_supabase
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: "{{ secret('DB_CONNECTION_STRING') }}"
+    sql: |
+      INSERT INTO conversation_logs (
+        phone_number,
+        user_message,
+        ai_response,
+        context_data,
+        redis_source,
+        created_at
+      ) VALUES (
+        '{{ trigger.body.phone }}',
+        '{{ trigger.body.message }}',
+        '{{ outputs["run-silvia-agent-with-coolify-memory"].vars.response }}',
+        '{{ outputs["run-silvia-agent-with-coolify-memory"].vars.memory_context | toJson }}',
+        'coolify_redis',
+        NOW()
+      )
+    allowFailure: true
+
+  # 11. Enviar WhatsApp (mantém lógica existente)
+  - id: send-whatsapp-reply
+    type: io.kestra.plugin.core.http.Request
+    uri: "https://graph.facebook.com/v20.0/599096403294262/messages"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ secret('WHATSAPP_API_TOKEN') }}"
+      Content-Type: "application/json"
+    body: |
+      {
+        "messaging_product": "whatsapp",
+        "to": "{{ trigger.body.phone }}",
+        "type": "text",
+        "text": { "body": {{ outputs['run-silvia-agent-with-coolify-memory'].vars.response | json }} }
+      }
+    runIf: "{{ outputs['run-silvia-agent-with-coolify-memory'].exitCode == 0 and outputs['run-silvia-agent-with-coolify-memory'].vars.response != null and outputs['run-silvia-agent-with-coolify-memory'].vars.response != '' }}"
+
+  # 12. Log consolidado
+  - id: log-coolify-redis-result
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [SILVIA-COOLIFY-REDIS] {{ trigger.body.phone }} - 
+      Primeiro: {{ outputs['run-silvia-agent-with-coolify-memory'].vars.memory_context.is_first_contact }} | 
+      Histórico: {{ outputs['run-silvia-agent-with-coolify-memory'].vars.memory_context.total_previous_messages }}msgs | 
+      Redis: {{ outputs['run-silvia-agent-with-coolify-memory'].vars.performance.redis_connected ? 'OK' : 'FAIL' }} | 
+      Context: {{ outputs['run-silvia-agent-with-coolify-memory'].vars.performance.context_loaded ? 'OK' : 'EMPTY' }} | 
+      Status: {{ outputs['run-silvia-agent-with-coolify-memory'].exitCode == 0 ? 'SUCCESS' : 'ERROR' }} 

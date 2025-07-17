@@ -24,6 +24,8 @@ x-kestra-config: &kestra-config
           path: /tmp/kestra-wd/tmp
       variables:
         env-vars-prefix: ""
+        # Configurações globais para workflows
+        redis_url: "redis://redis:6379/0"
       secret:
         type: env
     micronaut:
@@ -101,8 +103,12 @@ services:
       SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
       SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
       DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+      REDIS_URL: "redis://redis:6379/0"
     networks:
       - coolify
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   kestra:
@@ -138,9 +144,14 @@ services:
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
       SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
       SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+      # Configuração do Redis para workflows
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_REDIS_URL: "redis://redis:6379/0"
     depends_on:
       postgres:
         condition: service_started
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - coolify
