@@ -28,21 +28,667 @@ tasks:
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       
     inputFiles:
-      # Scripts do Agente
-      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
-      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
-      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
-      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
-      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      # Scripts do Agente embutidos diretamente no workflow
+      scripts/agent_orchestrator.py: |
+        import os
+        import argparse
+        import json
+        from dotenv import load_dotenv
+
+        # --- Importações Essenciais do LangChain ---
+        from langchain_openai import ChatOpenAI
+        from langchain.agents import AgentExecutor, create_openai_tools_agent
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        from langchain_community.chat_message_histories import ChatMessageHistory
+        from langchain_core.runnables.history import RunnableWithMessageHistory
+
+        # --- Importar Ferramentas Específicas do Agente ---
+        from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
+        from scripts.agent_tools.serena_tools import (
+            buscar_planos_de_energia_por_localizacao,
+            analisar_conta_de_energia_de_imagem,
+        )
+        from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead
+
+        # Carregar variáveis de ambiente (ex: OPENAI_API_KEY)
+        load_dotenv()
+
+        # --- PASSO 1: Montagem do Agente "Sílvia" ---
+
+        # 1.1 - Lista de ferramentas que o agente poderá usar.
+        tools = [
+            consultar_dados_lead,
+            consultar_faq_serena,
+            buscar_planos_de_energia_por_localizacao,
+            analisar_conta_de_energia_de_imagem,
+            salvar_ou_atualizar_lead_silvia
+        ]
+
+        # 1.2 - O "cérebro" do agente: o modelo de linguagem.
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+
+        # 1.3 - O prompt do agente, definindo a persona e as entradas.
+        # O conteúdo do FAQ_INTERNO_TRAINING.md é inserido aqui.
+        system_prompt = """
+        # QUEM SOU EU
+        - **Identidade**: Meu nome é Sílvia, sou uma representante virtual especialista da Serena Energia.
+        - **Missão**: Minha missão é ajudar os clientes a entenderem e contratarem planos de energia limpa de forma 100% digital, tornando o processo fácil, rápido e sem complicações.
+        - **Comportamento**: Meu tom de voz é informal, simpático e bem-humorado. Sou prestativa e guio os clientes pelo processo de qualificação, usando emojis com moderação para criar uma conexão humana. Ajo como uma especialista que descomplica.
+        - **Objetivo Principal**: Qualificar leads (consumo > 200kWh) e guiá-los para enviar a conta de energia.
+
+        # COMO DEVO AGIR
+        1.  **PRIMEIRA AÇÃO OBRIGATÓRIA**: No início de TODA conversa, use a ferramenta 'consultar_dados_lead' com o número de telefone do usuário para carregar seu contexto. Isso é crucial para saber com quem você está falando.
+        2.  Após carregar o contexto, apresente-se como "Sílvia da Serena Energia".
+        3.  Para dúvidas comuns dos clientes, use a ferramenta 'consultar_faq_serena'.
+        4.  Se o usuário perguntar sobre planos, descontos ou cobertura, use a ferramenta 'buscar_planos_de_energia_por_localizacao'.
+        5.  Após tirar as dúvidas, seu principal objetivo é incentivar o usuário a enviar uma foto da conta de energia para uma análise de desconto.
+        6.  Quando uma imagem for enviada, use a ferramenta 'analisar_conta_de_energia_de_imagem'.
+        7.  Com os dados da conta em mãos, confirme as informações com o usuário e, se estiverem corretas, use 'salvar_ou_atualizar_lead_silvia' para registrar o lead.
+        """
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("user", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
+
+        # 1.4 - Cria o agente, unindo o LLM, o prompt e as ferramentas.
+        agent = create_openai_tools_agent(llm, tools, prompt)
+
+        # 1.5 - Cria o executor do agente.
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+
+        # --- PASSO 2: Adicionar Memória de Conversa ---
+
+        # 2.1 - Dicionário para armazenar o histórico de cada sessão de chat.
+        # Em um ambiente de produção, isso seria substituído por um banco de dados como Redis.
+        store = {}
+
+        def get_session_history(session_id: str) -> ChatMessageHistory:
+            """Busca ou cria um histórico de chat para uma sessão específica."""
+            if session_id not in store:
+                store[session_id] = ChatMessageHistory()
+            return store[session_id]
+
+        # 2.2 - Envolve o executor do agente com o gerenciador de histórico.
+        # Esta é a cadeia final, pronta para ser usada.
+        agent_with_chat_history = RunnableWithMessageHistory(
+            agent_executor,
+            get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+        )
+
+        # --- PASSO 3: Função Principal de Execução ---
+
+        def handle_agent_invocation(phone_number: str, user_message: str, image_url: str = None):
+            """
+            Recebe a mensagem do usuário, prepara a entrada e invoca o agente com memória.
+            """
+            if image_url:
+                input_data = f"O usuário enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
+            else:
+                input_data = user_message
+
+            # A configuração da sessão é passada via 'configurable'.
+            config = {"configurable": {"session_id": phone_number}}
+
+            response = agent_with_chat_history.invoke(
+                {"input": input_data},
+                config=config
+            )
+            
+            return {"response": response.get("output", "Não consegui processar sua solicitação.")}
+
+        # --- PASSO 4: Ponto de Entrada para o Script (para testes) ---
+
+        if __name__ == '__main__':
+            parser = argparse.ArgumentParser(description='Orquestrador do Agente Sílvia.')
+            parser.add_argument('--phone_number', type=str, required=True, help='Número de telefone do usuário (ID da sessão).')
+            parser.add_argument('--message', type=str, required=True, help='Mensagem do usuário.')
+            parser.add_argument('--image_url', type=str, help='URL da imagem (opcional).')
+            
+            args = parser.parse_args()
+
+            # Executa a lógica do agente
+            result = handle_agent_invocation(args.phone_number, args.message, args.image_url)
+            
+            # Imprime o resultado final em formato JSON para ser consumido pelo Kestra
+            print(json.dumps(result))
       
-      # Dependências
-      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: |
+        from langchain_core.documents import Document
+        from langchain_openai import OpenAIEmbeddings
+        from langchain_community.vectorstores import FAISS
+        from langchain_core.tools import tool
+
+        # Importa a lista de FAQ do nosso novo arquivo de dados
+        from scripts.agent_tools.faq_data import FAQ_LIST
+
+        def get_faq_retriever():
+            """
+            Cria um retriever FAISS a partir de uma lista de FAQs pré-definida.
+            """
+            # Converte a lista de FAQ em documentos LangChain para indexação
+            documents = [
+                Document(page_content=f"Pergunta: {item['pergunta']}\nResposta: {item['resposta']}")
+                for item in FAQ_LIST
+            ]
+            
+            if not documents:
+                raise ValueError("A lista de FAQ está vazia. Não é possível criar a base de conhecimento.")
+
+            embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+            
+            # Cria o índice vetorial em memória
+            vector_store = FAISS.from_documents(documents, embeddings)
+            
+            return vector_store.as_retriever(search_kwargs={"k": 3}) # Retorna os 3 resultados mais relevantes
+
+        # O retriever é criado uma vez quando o módulo é importado para otimizar a performance
+        faq_retriever = get_faq_retriever()
+
+        @tool
+        def consultar_faq_serena(pergunta_do_usuario: str) -> str:
+            """
+            Use esta ferramenta para responder a perguntas comuns dos clientes sobre a Serena Energia, 
+            como funciona o serviço, custos, instalação e cobertura. A entrada deve ser a 
+            pergunta do usuário.
+            """
+            docs = faq_retriever.invoke(pergunta_do_usuario)
+            
+            if not docs:
+                return "Não encontrei uma resposta para isso em nosso FAQ. Você poderia tentar reformular a pergunta?"
+                
+            # Concatena o conteúdo dos documentos encontrados para formar o contexto
+            contexto = "\n\n".join([doc.page_content for doc in docs])
+            
+            return contexto
+      
+      scripts/agent_tools/faq_data.py: |
+        # -*- coding: utf-8 -*-
+        """
+        Fonte de dados para a ferramenta de conhecimento do Agente Sílvia.
+        Este arquivo contém as perguntas e respostas mais comuns dos leads.
+        """
+
+        FAQ_LIST = [
+            {
+                "pergunta": "O que é energia limpa? É algum tipo de pegadinha?",
+                "resposta": "Ótima pergunta! Não é pegadinha, não! Energia limpa é aquela que geramos a partir de fontes renováveis, como a solar e a eólica, que não poluem o meio ambiente. É uma possibilidade que virou lei há alguns anos, e nosso papel na Serena é tornar isso fácil e seguro para você!"
+            },
+            {
+                "pergunta": "Vou precisar instalar placas solares na minha casa ou ter algum custo com obra?",
+                "resposta": "Não, de jeito nenhum! E essa é a melhor parte. Nós produzimos a energia em nossos parques solares de alta tecnologia, e a distribuidora da sua cidade entrega essa energia na sua casa. Você não tem nenhum custo com instalação, obras ou manutenção."
+            },
+            {
+                "pergunta": "Quanto eu vou economizar de verdade na minha conta de luz?",
+                "resposta": "Sua economia pode chegar a até 21% de desconto já no primeiro ano se você for um cliente residencial ou de baixa tensão. Para empresas maiores, no Mercado Livre de Energia, a economia pode chegar a até 40%!"
+            },
+            {
+                "pergunta": "Como vai ficar minha conta de luz depois que eu contratar a Serena?",
+                "resposta": "Fica mais simples! Você passará a receber uma fatura única, já com o desconto da energia limpa aplicado. Essa fatura incluirá os custos da distribuidora (como taxa mínima e iluminação pública) e o seu consumo de energia com a Serena. Pode desconsiderar o boleto antigo da sua distribuidora."
+            },
+            {
+                "pergunta": "Se acabar a energia na minha rua, para quem eu ligo?",
+                "resposta": "Você continua falando com a sua distribuidora de energia local (como a CELPE, ENEL, etc.). Eles ainda são os responsáveis por toda a infraestrutura dos fios e postes que levam a energia até você. A Serena garante a energia mais barata, e a distribuidora garante a entrega."
+            },
+            {
+                "pergunta": "Vocês atendem na minha cidade?",
+                "resposta": "Estamos em todo o Brasil! Para clientes de média e alta tensão, a cobertura é nacional. Para clientes de baixa tensão, como residências, atendemos mais de 2 mil municípios e estamos crescendo muito rápido. Para eu te dar a resposta exata, só preciso saber sua cidade e estado!"
+            }
+        ]
+      
+      scripts/agent_tools/serena_tools.py: |
+        from langchain_core.tools import tool
+        import json
+        import os
+        import base64
+        from openai import OpenAI
+        from scripts.serena_api import SerenaAPI
+
+        # --- Instâncias de Clientes ---
+        serena_api_client = SerenaAPI()
+        # Inicializa o cliente OpenAI para a ferramenta de visão
+        openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+        # --- Funções Auxiliares ---
+
+        def _analyze_bill_with_vision(image_url: str) -> dict:
+            """
+            Função extraída e adaptada de ai_conversation_handler.py para usar o modelo de visão.
+            """
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Analise a imagem desta conta de energia e extraia o nome do titular, o valor total e o consumo em kWh. Retorne apenas um JSON com as chaves 'nome_cliente', 'valor_total' e 'consumo_kwh'."},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ],
+                max_tokens=300,
+            )
+            # Supondo que a resposta seja um JSON bem formatado
+            try:
+                content = response.choices[0].message.content
+                if content:
+                    return json.loads(content)
+                return {}
+            except (json.JSONDecodeError, IndexError):
+                return {}
+
+
+        # --- Ferramentas para o Agente ---
+
+        @tool
+        def buscar_planos_de_energia_por_localizacao(localizacao: str) -> str:
+            """
+            Use esta ferramenta quando um usuário perguntar sobre planos, descontos ou 
+            cobertura em uma cidade específica. A entrada deve ser a localização no 
+            formato 'cidade, estado'. Retorna os planos disponíveis ou uma mensagem 
+            de que a área não é atendida.
+            """
+            try:
+                cidade, estado = localizacao.split(',')
+                cidade = cidade.strip()
+                estado = estado.strip()
+                
+                planos = serena_api_client.get_plans(cidade, estado)
+                
+                if planos:
+                    return json.dumps(planos)
+                else:
+                    return f"A Serena Energia ainda não atende a região de {cidade}, {estado}."
+            except ValueError:
+                return "Formato de localização inválido. Por favor, use 'cidade, estado'."
+            except Exception as e:
+                return f"Ocorreu um erro ao buscar os planos: {e}"
+
+        @tool
+        def analisar_conta_de_energia_de_imagem(image_url: str) -> str:
+            """
+            Use esta ferramenta APENAS quando o usuário enviar uma imagem de uma 
+            conta de luz. Ela recebe a URL da imagem, extrai dados como valor, 
+            consumo e nome do cliente, e retorna essas informações estruturadas em JSON.
+            """
+            try:
+                dados_extraidos = _analyze_bill_with_vision(image_url)
+                
+                if dados_extraidos and all(k in dados_extraidos for k in ['nome_cliente', 'valor_total', 'consumo_kwh']):
+                    return json.dumps(dados_extraidos)
+                else:
+                    return "Não foi possível extrair todos os dados necessários da imagem. Peça ao usuário para enviar uma imagem mais nítida."
+                    
+            except Exception as e:
+                return f"Ocorreu um erro ao processar a imagem da conta de energia: {e}"
+      
+      scripts/agent_tools/supabase_agent_tools.py: |
+        import os
+        import psycopg2
+        import json
+        import re
+        from dotenv import load_dotenv
+        from langchain_core.tools import tool
+
+        # Carrega variáveis de ambiente
+        load_dotenv()
+
+        @tool
+        def consultar_dados_lead(phone_number: str) -> str:
+            """
+            Consulta os dados de um lead existente no banco de dados usando o número de telefone.
+            Use esta ferramenta no início de cada conversa para carregar o contexto do lead, 
+            como nome e cidade, antes de interagir com ele.
+            """
+            conn_string = os.getenv("DB_CONNECTION_STRING")
+            if not conn_string:
+                # Tenta com o prefixo SECRET_ se a variável normal não existir
+                conn_string = os.getenv("SECRET_DB_CONNECTION_STRING")
+                if not conn_string:
+                    return "Erro: A variável de ambiente DB_CONNECTION_STRING ou SECRET_DB_CONNECTION_STRING não foi encontrada."
+
+            try:
+                # Normaliza o número de telefone APENAS para a busca no banco
+                digits_only = re.sub(r'\D', '', phone_number)
+                if digits_only.startswith('55'):
+                    search_phone_number = digits_only[2:]
+                else:
+                    search_phone_number = digits_only
+
+                with psycopg2.connect(conn_string) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT name, city, state, invoice_amount, client_type FROM leads WHERE phone_number = %s",
+                            (search_phone_number,)
+                        )
+                        result = cur.fetchone()
+                        
+                        if result:
+                            lead_data = {
+                                "name": result[0],
+                                "city": result[1],
+                                "state": result[2],
+                                "invoice_amount": result[3],
+                                "client_type": result[4]
+                            }
+                            return json.dumps(lead_data)
+                        else:
+                            return "Nenhum dado encontrado para este número de telefone."
+
+            except psycopg2.Error as e:
+                return f"Erro ao consultar o banco de dados: {e}"
+            except Exception as e:
+                return f"Ocorreu um erro inesperado: {e}"
+
+        @tool
+        def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
+            """
+            Salva ou atualiza os dados de um lead no banco de dados. 
+            A entrada deve ser um dicionário em formato de string JSON contendo as chaves: 
+            'name', 'phone', 'email', 'city', 'state', e um dicionário aninhado 
+            'energy_bill_data' com 'valor_total' e 'client_type'.
+            Use esta ferramenta após confirmar os dados com o usuário.
+            """
+            conn_string = os.getenv("DB_CONNECTION_STRING")
+            
+            if not conn_string:
+                # Tenta com o prefixo SECRET_ se a variável normal não existir
+                conn_string = os.getenv("SECRET_DB_CONNECTION_STRING")
+                if not conn_string:
+                    return "Erro: A variável de ambiente DB_CONNECTION_STRING ou SECRET_DB_CONNECTION_STRING não foi encontrada."
+
+            try:
+                dados_dict = json.loads(dados_lead)
+                energy_data = dados_dict.get('energy_bill_data', {})
+
+                phone = dados_dict.get('phone')
+                name = dados_dict.get('name')
+                email = dados_dict.get('email', '')
+                account_value = energy_data.get('valor_total')
+                client_type = energy_data.get('client_type', 'Residencial')
+                city = dados_dict.get('city')
+                state = dados_dict.get('state')
+
+                with psycopg2.connect(conn_string) as conn:
+                    with conn.cursor() as cur:
+                        additional_data_payload = {"email": email, "source": "silvia_agent"}
+                        additional_data_json = json.dumps(additional_data_payload)
+
+                        cur.execute(
+                            """
+                            INSERT INTO leads (phone_number, name, invoice_amount, client_type, state, city, additional_data, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                            ON CONFLICT (phone_number) 
+                            DO UPDATE SET
+                                name = EXCLUDED.name,
+                                invoice_amount = EXCLUDED.invoice_amount,
+                                client_type = EXCLUDED.client_type,
+                                state = EXCLUDED.state,
+                                city = EXCLUDED.city,
+                                additional_data = leads.additional_data || %s::jsonb,
+                                updated_at = CURRENT_TIMESTAMP;
+                            """,
+                            (phone, name, account_value, client_type, state, city, additional_data_json, additional_data_json)
+                        )
+                return "Dados do lead salvos com sucesso no sistema."
+
+            except json.JSONDecodeError:
+                return "Erro: A entrada para a ferramenta não é um JSON válido."
+            except psycopg2.Error as e:
+                return f"Erro ao interagir com o banco de dados: {e}"
+            except Exception as e:
+                return f"Ocorreu um erro inesperado: {e}"
+      
+      scripts/serena_api.py: |
+        """
+        Cliente API para integração com serviços da Serena Energia.
+        """
+        import os
+        import requests
+        import logging
+        from typing import Dict, List, Any, Optional
+
+        # Configurar logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+
+        class SerenaAPI:
+            """
+            Cliente para a API da Serena Energia.
+            Fornece métodos para interagir com serviços como consulta de planos,
+            criação de leads, etc.
+            """
+            
+            def __init__(self, api_token=None, base_url=None):
+                """
+                Inicializa o cliente da API.
+                
+                Args:
+                    api_token (str, optional): Token de autenticação para a API.
+                                              Se None, tentará carregar da variável de ambiente.
+                    base_url (str, optional): URL base para as requisições.
+                                             Se None, tentará carregar da variável de ambiente.
+                """
+                self.api_token = api_token or os.getenv("SERENA_API_TOKEN")
+                self.base_url = base_url or os.getenv("SERENA_API_BASE_URL", "https://partnership-service-staging.api.srna.co")
+                
+                if not self.api_token:
+                    logger.warning("API Token não fornecido. Algumas operações podem falhar.")
+                
+                logger.info(f"Inicializando cliente SerenaAPI com base_url: {self.base_url}")
+            
+            def get_headers(self) -> Dict[str, str]:
+                """
+                Retorna os headers para as requisições à API.
+                
+                Returns:
+                    Dict[str, str]: Headers para autenticação e formato de conteúdo.
+                """
+                return {
+                    "Authorization": f"Bearer {self.api_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            
+            def handle_response(self, response: requests.Response) -> Dict[str, Any]:
+                """
+                Processa a resposta da API, tratando possíveis erros.
+                
+                Args:
+                    response (requests.Response): Resposta da requisição.
+                    
+                Returns:
+                    Dict[str, Any]: Dados da resposta.
+                    
+                Raises:
+                    Exception: Se a resposta contiver um código de erro.
+                """
+                try:
+                    # Tentar decodificar a resposta como JSON
+                    data = response.json()
+                    
+                    # Verificar se a resposta indica erro
+                    if response.status_code >= 400:
+                        error_message = data.get('message', 'Erro desconhecido na API')
+                        logger.error(f"API Error [{response.status_code}]: {error_message}")
+                        raise Exception(f"API Error: {error_message}")
+                    
+                    return data
+                    
+                except ValueError:
+                    # Se a resposta não for um JSON válido
+                    logger.error(f"Resposta inválida da API: {response.text}")
+                    if response.status_code >= 400:
+                        raise Exception(f"API Error [{response.status_code}]: {response.text}")
+                    return {"message": response.text}
+            
+            def get_plans(self, cidade: str, estado: str) -> List[Dict[str, Any]]:
+                """
+                Busca planos disponíveis para uma determinada localização.
+                
+                Args:
+                    cidade (str): Nome da cidade.
+                    estado (str): Sigla do estado (ex: SP, RJ).
+                    
+                Returns:
+                    List[Dict[str, Any]]: Lista de planos disponíveis.
+                """
+                logger.info(f"[get_plans] Buscando planos para {cidade}, {estado}")
+                
+                url = f"{self.base_url}/plans"
+                params = {
+                    "city": cidade,
+                    "state": estado
+                }
+                
+                try:
+                    response = requests.get(url, headers=self.get_headers(), params=params)
+                    data = self.handle_response(response)
+                    
+                    # Extrair apenas os dados relevantes dos planos
+                    plans = data.get('plans', [])
+                    simplified_plans = []
+                    
+                    for plan in plans:
+                        simplified_plan = {
+                            "id": plan.get('id'),
+                            "nome": plan.get('name'),
+                            "desconto": plan.get('discount', 0),
+                            "tipo": plan.get('type'),
+                            "prazo_contrato": plan.get('contract_period'),
+                            "valor_minimo": plan.get('min_value', 0)
+                        }
+                        simplified_plans.append(simplified_plan)
+                    
+                    logger.info(f"[get_plans] Encontrados {len(simplified_plans)} planos")
+                    return simplified_plans
+                    
+                except Exception as e:
+                    logger.error(f"[get_plans] Erro ao buscar planos: {e}")
+                    return []
+
+            def create_lead(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
+                """
+                Cria um novo lead na Serena Energia.
+                
+                Args:
+                    lead_data (Dict[str, Any]): Dados do lead a ser criado.
+                    
+                Returns:
+                    Dict[str, Any]: Dados do lead criado ou mensagem de erro.
+                """
+                logger.info("[create_lead] Criando novo lead")
+                
+                url = f"{self.base_url}/leads"
+                
+                # Validar dados mínimos
+                required_fields = ['name', 'phone', 'city', 'state']
+                for field in required_fields:
+                    if field not in lead_data:
+                        logger.error(f"[create_lead] Campo obrigatório ausente: {field}")
+                        return {"error": f"Campo obrigatório ausente: {field}"}
+                
+                try:
+                    response = requests.post(url, headers=self.get_headers(), json=lead_data)
+                    result = self.handle_response(response)
+                    logger.info(f"[create_lead] Lead criado com sucesso: {result.get('id')}")
+                    return result
+                    
+                except Exception as e:
+                    logger.error(f"[create_lead] Erro ao criar lead: {e}")
+                    return {"error": str(e)}
+
+            def get_lead(self, lead_id: str) -> Optional[Dict[str, Any]]:
+                """
+                Busca informações de um lead específico.
+                
+                Args:
+                    lead_id (str): ID do lead a ser consultado.
+                    
+                Returns:
+                    Optional[Dict[str, Any]]: Dados do lead ou None se não encontrado.
+                """
+                logger.info(f"[get_lead] Buscando lead: {lead_id}")
+                
+                url = f"{self.base_url}/leads/{lead_id}"
+                
+                try:
+                    response = requests.get(url, headers=self.get_headers())
+                    
+                    # Se o lead não existe, retorna None
+                    if response.status_code == 404:
+                        logger.info(f"[get_lead] Lead não encontrado: {lead_id}")
+                        return None
+                        
+                    result = self.handle_response(response)
+                    logger.info(f"[get_lead] Lead recuperado com sucesso")
+                    return result
+                    
+                except Exception as e:
+                    logger.error(f"[get_lead] Erro ao buscar lead: {e}")
+                    return None
+
+            def update_lead(self, lead_id: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
+                """
+                Atualiza informações de um lead existente.
+                
+                Args:
+                    lead_id (str): ID do lead a ser atualizado.
+                    update_data (Dict[str, Any]): Novos dados para o lead.
+                    
+                Returns:
+                    Dict[str, Any]: Dados do lead atualizado ou mensagem de erro.
+                """
+                logger.info(f"[update_lead] Atualizando lead: {lead_id}")
+                
+                url = f"{self.base_url}/leads/{lead_id}"
+                
+                try:
+                    response = requests.patch(url, headers=self.get_headers(), json=update_data)
+                    result = self.handle_response(response)
+                    logger.info(f"[update_lead] Lead atualizado com sucesso")
+                    return result
+                    
+                except Exception as e:
+                    logger.error(f"[update_lead] Erro ao atualizar lead: {e}")
+                    return {"error": str(e)}
+            
+            def search_leads_by_phone(self, phone_number: str) -> List[Dict[str, Any]]:
+                """
+                Busca leads pelo número de telefone.
+                
+                Args:
+                    phone_number (str): Número de telefone para buscar.
+                    
+                Returns:
+                    List[Dict[str, Any]]: Lista de leads encontrados.
+                """
+                logger.info(f"[search_leads_by_phone] Buscando leads com telefone: {phone_number}")
+                
+                url = f"{self.base_url}/leads/search"
+                params = {"phone": phone_number}
+                
+                try:
+                    response = requests.get(url, headers=self.get_headers(), params=params)
+                    data = self.handle_response(response)
+                    leads = data.get('leads', [])
+                    logger.info(f"[search_leads_by_phone] Encontrados {len(leads)} leads")
+                    return leads
+                    
+                except Exception as e:
+                    logger.error(f"[search_leads_by_phone] Erro ao buscar leads: {e}")
+                    return []
       
       # __init__.py para os diretórios
       scripts/__init__.py: ""
       scripts/agent_tools/__init__.py: ""
       
-      # Arquivo de dependências com caminho explícito
+      # Arquivo de dependências
       requirements.txt: |
         fastapi==0.110.1
         uvicorn[standard]==0.23.1
