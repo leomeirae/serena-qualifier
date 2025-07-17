@@ -17,7 +17,10 @@ def consultar_dados_lead(phone_number: str) -> str:
     """
     conn_string = os.getenv("DB_CONNECTION_STRING")
     if not conn_string:
-        return "Erro: A variável de ambiente DB_CONNECTION_STRING não foi encontrada."
+        # Tenta com o prefixo SECRET_ se a variável normal não existir
+        conn_string = os.getenv("SECRET_DB_CONNECTION_STRING")
+        if not conn_string:
+            return "Erro: A variável de ambiente DB_CONNECTION_STRING ou SECRET_DB_CONNECTION_STRING não foi encontrada."
 
     try:
         # Normaliza o número de telefone APENAS para a busca no banco
@@ -64,7 +67,10 @@ def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
     conn_string = os.getenv("DB_CONNECTION_STRING")
     
     if not conn_string:
-        return "Erro: A variável de ambiente DB_CONNECTION_STRING não foi encontrada."
+        # Tenta com o prefixo SECRET_ se a variável normal não existir
+        conn_string = os.getenv("SECRET_DB_CONNECTION_STRING")
+        if not conn_string:
+            return "Erro: A variável de ambiente DB_CONNECTION_STRING ou SECRET_DB_CONNECTION_STRING não foi encontrada."
 
     try:
         dados_dict = json.loads(dados_lead)

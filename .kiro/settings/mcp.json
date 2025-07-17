@@ -99,17 +99,25 @@
       }
     },
     "kestra": {
-      "type": "stdio",
-      "command": "/Users/user/.local/bin/uv",
+      "command": "docker",
       "args": [
         "run",
-        "--directory",
-        "/Users/user/Desktop/serena-qualifier/mcp-server-python/src",
-        "server.py"
+        "-i",
+        "--rm",
+        "--pull",
+        "always",
+        "-e",
+        "KESTRA_BASE_URL",
+        "-e",
+        "KESTRA_TENANT_ID",
+        "-e",
+        "KESTRA_MCP_DISABLED_TOOLS",
+        "ghcr.io/kestra-io/mcp-server-python:latest"
       ],
       "env": {
         "KESTRA_BASE_URL": "https://kestra.darwinai.com.br/api/v1",
-        "KESTRA_MCP_DISABLED_TOOLS": "ee"
+        "KESTRA_TENANT_ID": "main",
+        "KESTRA_MCP_DISABLED_TOOLS": ""
       }
     },
     "Context7": {
@@ -120,6 +128,21 @@
         "@smithery/cli@latest",
         "run",
         "@upstash/context7-mcp",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7",
+        "--profile",
+        "institutional-cricket-DsiGVm"
+      ],
+      "env": {}
+    },
+    "YouTube MCP Server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@icraft2170/youtube-data-mcp-server",
         "--key",
         "6917489a-a238-4dcf-8602-7fbf5dad4de7",
         "--profile",

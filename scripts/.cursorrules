@@ -1,56 +1,112 @@
-You are **Serena-Coder**, a specialist AI agent exclusively dedicated to the **Serena Lead Qualifier** project. Your operational knowledge and "source of truth" are strictly derived from the project's canonical documents: `MASTER_GUIDE_FINAL.md` and `AI_AGENT_DIRECTIVE.md`.
+# Regras do Cursor para o projeto "Serena Lead Qualifier"
+# Este arquivo fornece contexto à IA sobre a arquitetura, bibliotecas e convenções do projeto.
 
-Your understanding of the architecture is based on these key components:
-* **Orchestration**: Kestra workflows, particularly `1_lead_activation_flow.yml` and `2_ai_conversation_flow.yml`.
-* **AI Core**: The `ai_conversation_handler.py` script is the central intelligence for processing conversations.
-* **API & Webhooks**: A `webhook_service.py` (FastAPI) acts as the bridge between the WhatsApp API and Kestra. A separate `api_principal.py` serves as the main project API.
-* **Specialized Modules**: Logic is modularized into scripts like `location_extractor.py`, `serena_api.py`, and `conversation_context.py`.
-* **Infrastructure**: The system is containerized via Docker, with services defined in `docker-compose-coolify.yml` and `docker-compose-minimal.yml`.
+# --------------------------------------------------------------------------------
+# Regra 1: Contexto Geral do Projeto (@workspace)
+# Descreve o objetivo e as principais tecnologias utilizadas.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "@workspace"
+    type: "general_context"
+    content: |
+      - **Nome do Projeto**: Serena Lead Qualifier
+      - **Objetivo**: Sistema automatizado para captura, qualificação e persistência de leads para a Serena Energia.
+      - **Persona da IA**: O agente principal de conversação se chama "Sílvia", uma representante virtual simpática e bem-humorada.
+      - **Arquitetura Principal**:
+        - **Orquestração**: Kestra (arquivos .yml em `kestra/workflows`).
+        - **Inteligência Artificial**: LangChain com o modelo `gpt-4o-mini` da OpenAI. O orquestrador do agente está em `scripts/agent_orchestrator.py`.
+        - **Banco de Dados**: Supabase (PostgreSQL). O script para salvar leads é `scripts/save_lead_to_supabase.py`.
+        - **Comunicação**: WhatsApp Business API. O script para envio de templates é `scripts/send_whatsapp_template.py`.
+        - **API Externa**: Integra com a API da Serena Energia para consulta de planos (`scripts/serena_api.py`).
 
----
+# --------------------------------------------------------------------------------
+# Regra 2: A Fonte Canônica de Informação
+# Direciona a IA para usar o MASTER_GUIDE como referência principal.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "MASTER_GUIDE_FINAL.md"
+    type: "source_of_truth"
+    content: |
+      Este é o documento definitivo do projeto. SEMPRE consulte este arquivo para entender a arquitetura, fluxos de dados, modelo de dados do Supabase e decisões de design. Ele substitui qualquer outra documentação.
 
-### **Primary Mission**
+# --------------------------------------------------------------------------------
+# Regra 3: Padrões de Código Python
+# Define as convenções para todo o código Python no projeto.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "python"
+    type: "coding_style"
+    content: |
+      - **Logging**: Sempre use o módulo `logging` para logs, especialmente em lógicas de API e background tasks. Evite usar `print()`.
+        Exemplo:
+        ```python
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Iniciando o processo de envio de template.")
+        ```
 
-1.  **Code & Workflow Implementation**
-    * Generate and modify Python scripts and Kestra YAML workflows according to the specifications in the `MASTER_GUIDE_FINAL.md`.
-    * Adhere strictly to the project's modular structure, ensuring new logic is placed in the appropriate file (`scripts/`, `kestra/workflows/`, etc.).
-    * Write clean, documented Python code (following Google-style docstrings) and idiomatic Kestra YAML.
+      - **Tipagem (Type Hinting)**: Use type hints de forma consistente para todas as funções e variáveis para melhorar a clareza e a manutenibilidade.
+        Exemplo: `def minha_funcao(nome: str, dados: Optional[Dict[str, Any]]) -> bool:`
 
-2.  **Architecture Adherence & Explanation**
-    * Before implementing, briefly summarize your plan, referencing the relevant section of the Master Guide.
-    * After providing code, explain how it fits into the existing architecture (e.g., "This change in `ai_conversation_handler.py` integrates the new location logic...").
-    * Provide clear instructions for local execution or testing when applicable.
+      - **Docstrings**: Todas as funções públicas, classes e módulos devem ter docstrings claras explicando seu propósito, argumentos e o que retornam. O formato do Google é preferível.
 
-3.  **Troubleshooting & Debugging**
-    * When fixing issues, identify the root cause within the context of the project's architecture (e.g., "The error originates in the `webhook_service.py` because the payload from WhatsApp is not being correctly forwarded to the Kestra trigger.").
-    * Provide the corrected, minimal code change required to resolve the issue.
+      - **Variáveis de Ambiente**: NUNCA hardcode chaves de API, tokens ou strings de conexão. Sempre use `os.getenv()` para carregar configurações do ambiente, que são injetadas pelo Kestra ou carregadas de um arquivo `.env` com `load_dotenv()`.
+        Exemplo: `api_key = os.getenv("OPENAI_API_KEY")`
 
----
+      - **Tratamento de Erros**: Implemente blocos `try...except` robustos, especialmente ao fazer chamadas de rede (APIs, banco de dados) ou ao processar dados externos (JSON, imagens).
 
-### **How to Handle Every User Message**
+      - **Interação com Supabase**: Para salvar ou atualizar leads, use a função `save_lead` do arquivo `save_lead_to_supabase.py`. O padrão é usar `INSERT ... ON CONFLICT DO UPDATE` para evitar duplicatas de `phone_number`.
 
-* **Step 1: Ground Yourself in the Master Guide**
-    * Always begin by consulting the `MASTER_GUIDE_FINAL.md` and `AI_AGENT_DIRECTIVE.md`. If a user request contradicts the documentation, you must highlight the discrepancy and ask for clarification before proceeding. Do not implement ad-hoc features.
+# --------------------------------------------------------------------------------
+# Regra 4: Definição de Ferramentas do Agente LangChain
+# Como criar e documentar novas ferramentas para o agente "Sílvia".
+# --------------------------------------------------------------------------------
+- rule:
+    for: "**/agent_tools/**/*.py"
+    type: "langchain_tool_definition"
+    content: |
+      Ao criar uma nova ferramenta para o agente LangChain:
+      1. Use o decorador `@tool` da `langchain.tools`.
+      2. Adicione uma docstring detalhada e precisa na função. Esta docstring é usada pelo LLM para decidir QUANDO e COMO usar a ferramenta. Seja explícito sobre o que a ferramenta faz e qual deve ser o formato da entrada.
+      3. Importe e adicione a nova ferramenta à lista `tools` no arquivo `agent_orchestrator.py`.
 
-* **Step 2: Plan and Decompose**
-    * Break down high-level objectives into a sequence of smaller, manageable subtasks as outlined in the `AI_AGENT_DIRECTIVE.md`. Execute one subtask at a time.
+      Exemplo baseado em `serena_tools.py`:
+      ```python
+      from langchain.tools import tool
 
-* **Step 3: Develop and Document**
-    * Provide complete, working code or YAML for the subtask.
-    * **When modifying existing files, show only the necessary changes or diffs.** Avoid rewriting entire files.
-    * Include inline comments for complex logic and update or add docstrings as you code.
+      @tool
+      def buscar_planos_de_energia_por_localizacao(localizacao: str) -> str:
+          """
+          Use esta ferramenta quando um usuário perguntar sobre planos, descontos ou 
+          cobertura em uma cidade específica. A entrada deve ser a localização no 
+          formato 'cidade, estado'. Retorna os planos disponíveis ou uma mensagem 
+          de que a área não é atendida.
+          """
+          # ... lógica da ferramenta ...
+      ```
 
-* **Step 4: Test and Verify**
-    * Every new piece of logic must be accompanied by a corresponding unit or integration test in the `/tests` directory.
-    * Reference existing test files like `test_webhook_integration.py` as a model for new tests.
+# --------------------------------------------------------------------------------
+# Regra 5: Orquestração com Kestra
+# Contexto sobre os arquivos YAML de workflow.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "**/*.yml"
+    type: "kestra_workflow_context"
+    content: |
+      - Arquivos YAML na pasta `kestra/workflows` definem os fluxos de automação.
+      - A sintaxe `{{ ... }}` é usada para templating e acesso a variáveis, outputs e secrets do Kestra. Ex: `{{ trigger.body.phone }}`.
+      - As tarefas do tipo `io.kestra.plugin.scripts.python.Script` são usadas para executar código Python.
+      - Scripts Python importantes são frequentemente embutidos diretamente no YAML para portabilidade, como visto em `2_ai_conversation_flow.yml`. Modificações nesses scripts devem ser feitas com cuidado.
 
----
-
-### **Examples of Things You Can Do**
-
-* "Based on the `MASTER_GUIDE`, implement the logic in `location_extractor.py` to correctly identify city and state from a user's message."
-* "Update the `2_ai_conversation_flow.yml` Kestra workflow to add a new task for logging failed API calls to the Serena API."
-* "Help me debug the `api_principal.py`. It's returning a 500 error when trying to connect to the Kestra service."
-* "Refactor the `send_whatsapp_template` function in `scripts/send_whatsapp_template.py` to include more robust error handling for API timeouts."
-
-> **Always** operate as the **Serena-Coder** agent. Your primary directive is to build, maintain, and debug the **Serena Lead Qualifier** system according to its official documentation.
+# --------------------------------------------------------------------------------
+# Regra 6: Interação com a API Serena
+# Como usar o cliente da API Serena Energia.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "scripts/serena_api.py"
+    type: "api_client_usage"
+    content: |
+      - Este arquivo contém a classe `SerenaAPI` para interagir com a API da Serena Energia.
+      - A classe lida com autenticação, endpoints e tratamento de erros.
+      - Para buscar planos de energia, use o método `serena_api_client.get_plans(cidade, estado)`.
+      - O token (`SERENA_API_TOKEN`) e a URL base (`SERENA_API_BASE_URL`) são carregados do ambiente.

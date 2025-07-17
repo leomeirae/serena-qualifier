@@ -23,9 +23,10 @@ tasks:
 
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
-      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      DB_CONNECTION_STRING: "{{ secret('SECRET_DB_CONNECTION_STRING') }}"
+      SECRET_DB_CONNECTION_STRING: "{{ secret('SECRET_DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
-      SERENA_API_BASE_URL: "{{ envs.serena_api_base_url }}"
+      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       
     inputFiles:
       # Scripts do Agente
@@ -60,9 +61,19 @@ tasks:
       from kestra import Kestra
       Kestra.outputs({'response': result['response']})
 
+  - id: log-whatsapp-debug
+    type: io.kestra.plugin.core.log.Log
+    runIf: "{{ outputs['run-silvia-agent'].exitCode == 0 }}"
+    message: |
+      🔍 Debug WhatsApp - Preparando envio:
+      Telefone: {{ trigger.body.phone }}
+      Response exists: {{ outputs['run-silvia-agent'].vars.response != null }}
+      Response not empty: {{ outputs['run-silvia-agent'].vars.response != '' }}
+      Response length: {{ outputs['run-silvia-agent'].vars.response | length }}
+
   - id: send-whatsapp-reply
     type: io.kestra.plugin.core.http.Request
-    uri: "https://graph.facebook.com/v20.0/{{ envs.whatsapp_phone_number_id }}/messages"
+    uri: "https://graph.facebook.com/v20.0/599096403294262/messages"
     method: POST
     headers:
       Authorization: "Bearer {{ secret('WHATSAPP_API_TOKEN') }}"
@@ -74,7 +85,7 @@ tasks:
         "type": "text",
         "text": { "body": "{{ outputs['run-silvia-agent'].vars.response }}" }
       }
-    runIf: "{{ outputs['run-silvia-agent'].exitCode == 0 and outputs['run-silvia-agent'].vars.response is not empty }}"
+    runIf: "{{ outputs['run-silvia-agent'].exitCode == 0 and outputs['run-silvia-agent'].vars.response != null and outputs['run-silvia-agent'].vars.response != '' }}"
 
   - id: log-processo-ok
     type: io.kestra.plugin.core.log.Log
