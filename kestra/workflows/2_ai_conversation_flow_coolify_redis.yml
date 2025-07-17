@@ -56,16 +56,13 @@ tasks:
     type: io.kestra.plugin.redis.list.ListPop
     url: "{{ vars.redis_url }}"
     key: "silvia_history_{{ trigger.body.phone }}"
-    count: 5  # Últimas 5 trocas
+    maxRecords: 5  # Últimas 5 trocas
     allowFailure: true
 
   # 5. Executar Agente Sílvia com memória
   - id: run-silvia-agent-with-coolify-memory
     type: io.kestra.plugin.scripts.python.Script
     description: "Agente Sílvia com Memória Redis via Coolify"
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: kestra-agent:latest
 
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
@@ -93,7 +90,7 @@ tasks:
       user_message = "{{ trigger.body.message }}"
       
       # Verificar se é primeiro contato
-      is_first_contact = {{ outputs['check_first_contact'].value == null }}
+      is_first_contact = {{ outputs['check_first_contact'].value == null | toString | title }}
       
       # Contexto da conversa (Redis via Coolify)
       conversation_context = {}
@@ -169,7 +166,6 @@ tasks:
         "last_message_preview": "{{ trigger.body.message | length > 50 ? trigger.body.message[:50] + '...' : trigger.body.message }}"
       }
     serdeType: JSON
-    ttl: PT48H  # 48 horas
     allowFailure: true
 
   # 8. Adicionar ao histórico (Redis List via Coolify)
@@ -177,7 +173,7 @@ tasks:
     type: io.kestra.plugin.redis.list.ListPush
     url: "{{ vars.redis_url }}"
     key: "silvia_history_{{ trigger.body.phone }}"
-    value: |
+    from: |
       {
         "exchange_id": "{{ random() }}",
         "user": "{{ trigger.body.message }}",
@@ -191,7 +187,8 @@ tasks:
   # 9. Limitar histórico (manter últimas 15 mensagens usando script Python)
   - id: trim_coolify_redis_history
     type: io.kestra.plugin.scripts.python.Script
-    docker:
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
     env:
       REDIS_URL: "{{ vars.redis_url }}"
