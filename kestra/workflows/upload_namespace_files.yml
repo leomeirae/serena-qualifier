@@ -58,10 +58,18 @@ tasks:
           
           # Files to upload (local path -> namespace path)
           files_to_upload = {
+              # Scripts do Agente Sílvia
+              'scripts/agent_orchestrator.py': 'scripts/agent_orchestrator.py',
+              'scripts/agent_tools/knowledge_base_tool.py': 'scripts/agent_tools/knowledge_base_tool.py',
+              'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
+              'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
+              'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
+              'scripts/serena_api.py': 'scripts/serena_api.py',
+              'scripts/__init__.py': 'scripts/__init__.py',
+              # Scripts legados (manter para compatibilidade)
               'scripts/ai_conversation_handler.py': 'scripts/ai_conversation_handler.py',
               'scripts/location_extractor.py': 'scripts/location_extractor.py',
               'scripts/conversation_context.py': 'scripts/conversation_context.py',
-              'scripts/serena_api.py': 'scripts/serena_api.py',
               'scripts/save_lead_to_supabase.py': 'scripts/save_lead_to_supabase.py'
           }
           
