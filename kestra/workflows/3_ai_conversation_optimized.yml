@@ -106,7 +106,7 @@ tasks:
       - id: check_response_cache
         type: io.kestra.plugin.core.kv.Get
         description: "Verificar cache de resposta"
-        key: "response_cache_{{ (trigger.body.message ?? 'Teste manual do workflow') | hash }}"
+        key: "response_cache_{{ trigger.body.phone ?? '5511999999999' }}"
         allowFailure: true
         
       # 1d. Primeiro Contato Check (Sequencial)
@@ -207,7 +207,7 @@ tasks:
           - id: cache_ai_response
             type: io.kestra.plugin.core.kv.Set
             description: "Cachear resposta para reuso"
-            key: "response_cache_{{ (trigger.body.message ?? 'Teste manual do workflow') | hash }}"
+            key: "response_cache_{{ trigger.body.phone ?? '5511999999999' }}_{{ now() | date('yyyyMMddHHmmss') }}"
             value: "{{ outputs.ai_agent_containerized.vars.response | default('') }}"
             ttl: "{{ vars.cache_ttl }}"
 
@@ -259,10 +259,8 @@ tasks:
         type: io.kestra.plugin.core.log.Log
         message: |
           [PERFORMANCE-METRICS] Phone: {{ trigger.body.phone ?? '5511999999999' }} |
-          Cache: {{ outputs.check_response_cache.value != null ? 'HIT' : 'MISS' }} |
           Context Size: {{ outputs.prepare_optimized_context.vars.context_size | default(0) }}B |
-          First Contact: {{ outputs.check_first_contact.value == null ? 'YES' : 'NO' }} |
-          Execution: {{ taskrun.duration }}ms
+          First Contact: {{ outputs.check_first_contact.value == null ? 'YES' : 'NO' }}
         runIf: "{{ vars.enable_metrics }}"
 
   # FASE 4: RESPOSTA WHATSAPP SIMPLIFICADA
@@ -318,11 +316,9 @@ tasks:
     type: io.kestra.plugin.core.log.Log
     message: |
       [EXECUTION-SUMMARY] {{ trigger.body.phone ?? '5511999999999' }} |
-      Total Duration: {{ taskrun.duration }}ms |
-      Cache Status: {{ outputs.check_response_cache.value != null ? 'HIT' : 'MISS' }} |
       WhatsApp Status: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }} |
       Context Size: {{ outputs.prepare_optimized_context.vars.context_size | default(0) }}B |
-      Performance: {{ taskrun.duration < 3000 ? 'EXCELLENT' : (taskrun.duration < 5000 ? 'GOOD' : 'NEEDS_OPTIMIZATION') }}
+      Performance: EXECUTED
 
   # FASE 6: RESPOSTA DO WEBHOOK
   - id: webhook_response
@@ -331,24 +327,11 @@ tasks:
       [WEBHOOK-RESPONSE] Workflow executado com sucesso!
       Phone: {{ trigger.body.phone ?? '5511999999999' }}
       Status: SUCCESS
-      Execution ID: {{ taskrun.executionId }}
 
 # Configurações de Error Handling
-onFailure:
+errors:
   - id: global_error_handler
     type: io.kestra.plugin.core.log.Log
     message: |
       [ERROR] Workflow failed for {{ trigger.body.phone ?? '5511999999999' }} |
-      Error: {{ taskrun.error }} |
-      Task: {{ taskrun.taskId }} |
       Fallback: Sending generic error message
-
-  # Log de ativação para debug
-  - id: activation_log
-    type: io.kestra.plugin.core.log.Log
-    level: INFO
-    message: |
-      [ACTIVATION] Workflow 3_ai_conversation_optimized ativado com sucesso!
-      Trigger: {{ trigger.key ?? 'manual_execution' }}
-      Phone: {{ trigger.body.phone ?? '5511999999999' }}
-      Message: {{ trigger.body.message ?? 'Teste manual do workflow' }}

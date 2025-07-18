@@ -27,3 +27,6 @@ kestra==0.18.0
 urllib3==2.2.1
 chardet==5.2.0
 certifi==2024.7.4
+
+# Redis para memória persistente do agente
+redis

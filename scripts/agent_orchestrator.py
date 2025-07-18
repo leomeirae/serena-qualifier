@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_community.chat_message_histories import RedisChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 # --- Importar Ferramentas Específicas do Agente ---
@@ -38,20 +38,17 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 # 1.3 - O prompt do agente, definindo a persona e as entradas.
 # O conteúdo do FAQ_INTERNO_TRAINING.md é inserido aqui.
 system_prompt = """
-# QUEM SOU EU
-- **Identidade**: Meu nome é Sílvia, sou uma representante virtual especialista da Serena Energia.
-- **Missão**: Minha missão é ajudar os clientes a entenderem e contratarem planos de energia limpa de forma 100% digital, tornando o processo fácil, rápido e sem complicações.
-- **Comportamento**: Meu tom de voz é informal, simpático e bem-humorado. Sou prestativa e guio os clientes pelo processo de qualificação, usando emojis com moderação para criar uma conexão humana. Ajo como uma especialista que descomplica.
-- **Objetivo Principal**: Qualificar leads (consumo > 200kWh) e guiá-los para enviar a conta de energia.
+# Persona
 
-# COMO DEVO AGIR
-1.  **PRIMEIRA AÇÃO OBRIGATÓRIA**: No início de TODA conversa, use a ferramenta 'consultar_dados_lead' com o número de telefone do usuário para carregar seu contexto. Isso é crucial para saber com quem você está falando.
-2.  **AÇÃO PROATIVA**: Após carregar o contexto e encontrar dados do lead (nome + cidade/estado), apresente-se como "Sílvia da Serena Energia" e AUTOMATICAMENTE use a ferramenta 'buscar_planos_de_energia_por_localizacao' para oferecer planos para a cidade/estado do lead. Seja proativa!
-3.  Para dúvidas comuns dos clientes, use a ferramenta 'consultar_faq_serena'.
-4.  Se o usuário perguntar sobre planos, descontos ou cobertura, use a ferramenta 'buscar_planos_de_energia_por_localizacao'.
-5.  Após tirar as dúvidas, seu principal objetivo é incentivar o usuário a enviar uma foto da conta de energia para uma análise de desconto.
-6.  Quando uma imagem for enviada, use a ferramenta 'analisar_conta_de_energia_de_imagem'.
-7.  Com os dados da conta em mãos, confirme as informações com o usuário e, se estiverem corretas, use 'salvar_ou_atualizar_lead_silvia' para registrar o lead.
+Você é a Sílvia, uma especialista em energia da Serena. Sua comunicação é clara, amigável e proativa.
+
+# Regras de Raciocínio
+
+1.  **PRIMEIRA INTERAÇÃO**: Se o histórico da conversa (chat_history) estiver vazio, apresente-se brevemente.
+2.  **CONSULTAR LEAD**: No início de CADA NOVA CONVERSA (quando o histórico estiver vazio ou contiver apenas a primeira mensagem), use a ferramenta `consultar_dados_lead` para identificar o usuário. Não use esta ferramenta novamente a menos que o usuário peça para atualizar seus dados.
+3.  **BUSCAR PLANOS**: Use a ferramenta `buscar_planos_de_energia_por_localizacao` APENAS UMA VEZ por conversa, depois de ter confirmado a cidade e o estado do usuário. Não a utilize novamente, a menos que o usuário pergunte sobre planos para uma NOVA localização.
+4.  **USO DO FAQ**: Para perguntas gerais sobre a Serena, energia solar ou o processo (ex: 'o que é?', 'como funciona?', 'é seguro?'), use a ferramenta `consultar_faq_serena`.
+5.  **EFICIÊNCIA**: Não execute ferramentas cujas informações você já possui no histórico da conversa. Responda diretamente com base no que já foi discutido. Evite saudações repetitivas se a conversa já estiver em andamento.
 """
 
 prompt = ChatPromptTemplate.from_messages([
@@ -65,22 +62,29 @@ prompt = ChatPromptTemplate.from_messages([
 agent = create_openai_tools_agent(llm, tools, prompt)
 
 # 1.5 - Cria o executor do agente.
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+agent_executor = AgentExecutor(
+    agent=agent, 
+    tools=tools, 
+    verbose=True,
+    handle_parsing_errors=True,
+    max_iterations=10
+)
 
 
-# --- PASSO 2: Adicionar Memória de Conversa ---
+# --- PASSO 2: Adicionar Memória de Conversa (com Persistência no Redis) ---
 
-# 2.1 - Dicionário para armazenar o histórico de cada sessão de chat.
-# Em um ambiente de produção, isso seria substituído por um banco de dados como Redis.
-store = {}
+# 2.1 - Obtenha a URL do Redis das variáveis de ambiente.
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-def get_session_history(session_id: str) -> ChatMessageHistory:
-    """Busca ou cria um histórico de chat para uma sessão específica."""
-    if session_id not in store:
-        store[session_id] = ChatMessageHistory()
-    return store[session_id]
+# 2.2 - Função que agora usa o Redis para buscar ou criar o histórico.
+def get_session_history(session_id: str) -> RedisChatMessageHistory:
+    """
+    Recupera o histórico da conversa do Redis. Cada sessão (número de telefone)
+    terá sua própria chave no Redis.
+    """
+    return RedisChatMessageHistory(session_id, url=REDIS_URL)
 
-# 2.2 - Envolve o executor do agente com o gerenciador de histórico.
+# 2.3 - Envolve o executor do agente com o gerenciador de histórico.
 # Esta é a cadeia final, pronta para ser usada.
 agent_with_chat_history = RunnableWithMessageHistory(
     agent_executor,
@@ -91,7 +95,7 @@ agent_with_chat_history = RunnableWithMessageHistory(
 
 # --- PASSO 3: Função Principal de Execução ---
 
-def handle_agent_invocation(phone_number: str, user_message: str, image_url: str = None):
+def handle_agent_invocation(phone_number: str, user_message: str, image_url: str | None = None):
     """
     Recebe a mensagem do usuário, prepara a entrada e invoca o agente com memória.
     """
@@ -108,7 +112,11 @@ def handle_agent_invocation(phone_number: str, user_message: str, image_url: str
         config=config
     )
     
-    return {"response": response.get("output", "Não consegui processar sua solicitação.")}
+    output = response.get("output")
+    if output is None:
+        output = "Não consegui processar sua solicitação."
+    
+    return {"response": output}
 
 # --- PASSO 4: Ponto de Entrada para o Script (para testes) ---
 
