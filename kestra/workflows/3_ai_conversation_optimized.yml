@@ -35,7 +35,7 @@ tasks:
     message: |
       [TRIGGER-VALIDATION] Webhook recebido com sucesso!
       Phone: {{ trigger.body.phone ?? '5511999999999' }}
-      Message: {{ (trigger.body.message ?? 'Teste manual do workflow') | truncate(50) }}
+      Message: {{ trigger.body.message ?? 'Teste manual do workflow' }}
       Trigger Key: {{ trigger.key ?? 'manual_execution' }}
       Timestamp: {{ now() }}
 
@@ -334,13 +334,13 @@ tasks:
       Execution ID: {{ taskrun.executionId }}
 
 # Configurações de Error Handling
-errors:
+onFailure:
   - id: global_error_handler
     type: io.kestra.plugin.core.log.Log
     message: |
       [ERROR] Workflow failed for {{ trigger.body.phone ?? '5511999999999' }} |
-      Error: {{ error.message }} |
-      Task: {{ error.taskId }} |
+      Error: {{ taskrun.error }} |
+      Task: {{ taskrun.taskId }} |
       Fallback: Sending generic error message
 
   # Log de ativação para debug
@@ -351,4 +351,4 @@ errors:
       [ACTIVATION] Workflow 3_ai_conversation_optimized ativado com sucesso!
       Trigger: {{ trigger.key ?? 'manual_execution' }}
       Phone: {{ trigger.body.phone ?? '5511999999999' }}
-      Message: {{ (trigger.body.message ?? 'Teste manual do workflow') | truncate(20) }}
+      Message: {{ trigger.body.message ?? 'Teste manual do workflow' }}
