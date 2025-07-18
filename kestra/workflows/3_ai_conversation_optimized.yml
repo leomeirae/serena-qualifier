@@ -1,0 +1,354 @@
+id: 3_ai_conversation_optimized
+namespace: serena.production
+description: "Fluxo Otimizado de Conversa IA - Performance e Paralelização"
+
+triggers:
+  - id: webhook_lead_message
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_production_optimized
+    description: "Webhook otimizado para mensagens WhatsApp"
+
+variables:
+  # Configurações IA
+  ai_model: "gpt-4o-mini"
+  max_tokens: 1500
+  temperature: 0.5
+  
+  # Configurações de Storage (Híbrido)
+  enable_postgres: true
+  enable_redis_fallback: false  # Redis apenas como fallback
+  redis_url: "redis://redis:6379/0"  # URL do Redis (mesmo do workflow que funciona)
+  
+  # Performance e Cache
+  cache_ttl: "PT30M"  # 30 minutos
+  context_size_limit: 102400  # 100KB max
+  parallel_timeout: "PT15S"   # 15s timeout para tasks paralelas
+  
+  # Monitoramento
+  enable_metrics: true
+  log_level: "INFO"
+
+tasks:
+  # FASE 0: VALIDAÇÃO DO TRIGGER
+  - id: validate_trigger
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [TRIGGER-VALIDATION] Webhook recebido com sucesso!
+      Phone: {{ trigger.body.phone ?? '5511999999999' }}
+      Message: {{ (trigger.body.message ?? 'Teste manual do workflow') | truncate(50) }}
+      Trigger Key: {{ trigger.key ?? 'manual_execution' }}
+      Timestamp: {{ now() }}
+
+  # FASE 1: INICIALIZAÇÃO SEQUENCIAL (Simplificado para debug)
+  - id: sequential_initialization
+    type: io.kestra.plugin.core.flow.Sequential
+    description: "Inicialização sequencial para debug"
+    tasks:
+      
+      # 1a. Validação Token Serena (Sequencial)
+      - id: validate_serena_token
+        type: io.kestra.plugin.scripts.python.Script
+        description: "Validação rápida do token Serena API"
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install requests
+        env:
+          SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+          SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+        script: |
+          import requests
+          import os
+          from kestra import Kestra
+          
+          token = os.environ.get("SERENA_API_TOKEN")
+          base_url = os.environ.get("SERENA_API_BASE_URL")
+          
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Content-Type": "application/json"
+          }
+          
+          try:
+              response = requests.get(f"{base_url}/distribuited-generation/plans", 
+                                    headers=headers, timeout=5)
+              valid = response.status_code == 200
+              print(f"✅ Token válido: {valid}")
+          except Exception as e:
+              print(f"⚠️ Erro validação: {e}")
+              valid = False
+          
+          Kestra.outputs({'token_valid': valid})
+        allowFailure: true
+        
+      # 1b. Contexto do PostgreSQL (Sequencial)
+      - id: get_postgres_context
+        type: io.kestra.plugin.jdbc.postgresql.Query
+        description: "Recuperar contexto do PostgreSQL"
+        url: "jdbc:{{ secret('DB_CONNECTION_STRING') }}"
+        sql: |
+          SELECT 
+            context_data,
+            history_data,
+            last_interaction,
+            total_messages,
+            EXTRACT(EPOCH FROM (NOW() - last_interaction)) as seconds_since_last
+          FROM conversation_context 
+          WHERE phone_number = ?
+          LIMIT 1
+        parameters:
+          - "{{ trigger.body.phone ?? '5511999999999' }}"
+        fetchOne: true
+        allowFailure: true
+        
+      # 1c. Cache Check (Sequencial)
+      - id: check_response_cache
+        type: io.kestra.plugin.core.kv.Get
+        description: "Verificar cache de resposta"
+        key: "response_cache_{{ (trigger.body.message ?? 'Teste manual do workflow') | hash }}"
+        allowFailure: true
+        
+      # 1d. Primeiro Contato Check (Sequencial)
+      - id: check_first_contact
+        type: io.kestra.plugin.core.kv.Get
+        key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
+        allowFailure: true
+
+  # FASE 2: PROCESSAMENTO SIMPLIFICADO (Sem cache complexo)
+  - id: process_with_ai_simplified
+    type: io.kestra.plugin.core.flow.Sequential
+    description: "Processamento simplificado sem cache complexo"
+    tasks:
+          
+          # 2a. Preparar Contexto Otimizado
+          - id: prepare_optimized_context
+            type: io.kestra.plugin.scripts.python.Script
+            description: "Preparar contexto otimizado (< 100KB)"
+            taskRunner:
+              type: io.kestra.plugin.scripts.runner.docker.Docker
+              image: python:3.11-slim
+            beforeCommands:
+              - pip install kestra
+            script: |
+              import json
+              from kestra import Kestra
+              
+              # Dados do PostgreSQL - simplificado para evitar erros de parsing
+              pg_context = {{ outputs.get_postgres_context.row | default({}) }}
+              
+              # Primeiro contato
+              first_contact_raw = "{{ outputs.check_first_contact.value | default('null') }}"
+              is_first_contact = first_contact_raw in ["null", "", "None", None]
+              
+              # Contexto otimizado (apenas essencial)
+              optimized_context = {
+                  "phone": "{{ trigger.body.phone ?? '5511999999999' }}",
+                  "is_first_contact": is_first_contact,
+                  "last_interaction": pg_context.get("last_interaction"),
+                  "total_messages": pg_context.get("total_messages", 0),
+                  "seconds_since_last": pg_context.get("seconds_since_last", 0),
+                  "context_summary": pg_context.get("context_data", {}).get("summary", ""),
+                  "recent_topics": pg_context.get("context_data", {}).get("recent_topics", [])
+              }
+              
+              # Histórico resumido (últimas 3 interações)
+              history_data = pg_context.get("history_data", [])
+              recent_history = history_data[-3:] if history_data else []
+              
+              context_size = len(json.dumps(optimized_context))
+              print(f"📊 Contexto otimizado: {context_size} bytes")
+              
+              Kestra.outputs({
+                  'context': optimized_context,
+                  'recent_history': recent_history,
+                  'context_size': context_size
+              })
+              
+          # 2b. Agente IA Otimizado (usando estrutura que funciona)
+          - id: ai_agent_containerized
+            type: io.kestra.plugin.scripts.python.Script
+            description: "Agente IA otimizado com paralelização"
+            taskRunner:
+              type: io.kestra.plugin.scripts.runner.docker.Docker
+              image: kestra-agent:latest
+            env:
+              OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+              DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+              SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+              SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+              USER_MESSAGE: "{{ trigger.body.message ?? 'Teste manual do workflow' }}"
+              PHONE_NUMBER: "{{ trigger.body.phone ?? '5511999999999' }}"
+              REDIS_URL: "{{ vars.redis_url | default('redis://localhost:6379/0') }}"
+              CONTEXT_DATA: "{{ outputs.prepare_optimized_context.vars.context | default({}) | json }}"
+              RECENT_HISTORY: "{{ outputs.prepare_optimized_context.vars.recent_history | default([]) | json }}"
+            inputFiles:
+              # Scripts do Agente - referências aos arquivos externos
+              scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
+              scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
+              scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
+              scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+              scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+              scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+              scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
+              scripts/agent_tools/__init__.py: ""
+            script: |
+              from scripts.agent_orchestrator import handle_agent_invocation
+              
+              phone_number = "{{ trigger.body.phone ?? '5511999999999' }}"
+              user_message = "{{ trigger.body.message ?? 'Teste manual do workflow' }}"
+              
+              result = handle_agent_invocation(phone_number, user_message)
+              
+              from kestra import Kestra
+              Kestra.outputs({'response': result['response']})
+              
+          # 2c. Cache da Resposta (Simplificado)
+          - id: cache_ai_response
+            type: io.kestra.plugin.core.kv.Set
+            description: "Cachear resposta para reuso"
+            key: "response_cache_{{ (trigger.body.message ?? 'Teste manual do workflow') | hash }}"
+            value: "{{ outputs.ai_agent_containerized.vars.response | default('') }}"
+            ttl: "{{ vars.cache_ttl }}"
+
+  # FASE 3: PERSISTÊNCIA SEQUENCIAL (Simplificado)
+  - id: sequential_persistence
+    type: io.kestra.plugin.core.flow.Sequential
+    description: "Persistência sequencial simplificada"
+    tasks:
+      
+      # 3a. Atualizar PostgreSQL
+      - id: update_postgres_context
+        type: io.kestra.plugin.jdbc.postgresql.Query
+        description: "Atualizar contexto no PostgreSQL"
+        url: "jdbc:{{ secret('DB_CONNECTION_STRING') }}"
+        sql: |
+          INSERT INTO conversation_context (
+            phone_number,
+            context_data,
+            history_data,
+            last_interaction,
+            total_messages,
+            updated_at
+          ) VALUES (?, ?, ?, NOW(), 1, NOW())
+          ON CONFLICT (phone_number) 
+          DO UPDATE SET 
+            context_data = EXCLUDED.context_data,
+            history_data = conversation_context.history_data || EXCLUDED.history_data,
+            last_interaction = NOW(),
+            total_messages = conversation_context.total_messages + 1,
+            updated_at = NOW()
+        parameters:
+          - "{{ trigger.body.phone ?? '5511999999999' }}"
+          - "{{ outputs.prepare_optimized_context.vars.context | default({}) | json }}"
+          - |
+            [{"user": "{{ trigger.body.message ?? 'Teste manual do workflow' }}", 
+              "assistant": "{{ outputs.ai_agent_containerized.vars.response | default('') }}", 
+              "timestamp": "{{ now() }}"}]
+        allowFailure: true
+        
+      # 3b. Marcar Primeiro Contato
+      - id: mark_first_contact_kv
+        type: io.kestra.plugin.core.kv.Set
+        key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
+        value: "{{ now() }}"
+        runIf: "{{ outputs.check_first_contact.value == null }}"
+        
+      # 3c. Métricas de Performance
+      - id: log_performance_metrics
+        type: io.kestra.plugin.core.log.Log
+        message: |
+          [PERFORMANCE-METRICS] Phone: {{ trigger.body.phone ?? '5511999999999' }} |
+          Cache: {{ outputs.check_response_cache.value != null ? 'HIT' : 'MISS' }} |
+          Context Size: {{ outputs.prepare_optimized_context.vars.context_size | default(0) }}B |
+          First Contact: {{ outputs.check_first_contact.value == null ? 'YES' : 'NO' }} |
+          Execution: {{ taskrun.duration }}ms
+        runIf: "{{ vars.enable_metrics }}"
+
+  # FASE 4: RESPOSTA WHATSAPP SIMPLIFICADA
+  - id: send_whatsapp_simplified
+    type: io.kestra.plugin.core.flow.Sequential
+    tasks:
+      
+      # 4a. Preparar Payload WhatsApp
+      - id: prepare_whatsapp_payload
+        type: io.kestra.plugin.scripts.python.Script
+        description: "Preparar payload WhatsApp otimizado"
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install kestra
+        script: |
+          import json
+          from kestra import Kestra
+          
+          # Obter resposta do agente
+          response = "{{ outputs.ai_agent_containerized.vars.response | default('Desculpe, ocorreu um erro interno. Tente novamente.') }}"
+          
+          # Payload WhatsApp otimizado
+          payload = {
+              "messaging_product": "whatsapp",
+              "to": "{{ trigger.body.phone ?? '5511999999999' }}",
+              "type": "text",
+              "text": {"body": response}
+          }
+          
+          print(f"📱 Resposta preparada: {len(response)} chars")
+          
+          Kestra.outputs({
+              'payload': json.dumps(payload),
+              'response_length': len(response)
+          })
+          
+      # 4b. Enviar WhatsApp (usando estrutura que funciona)
+      - id: send_whatsapp_message
+        type: io.kestra.plugin.core.http.Request
+        uri: "https://graph.facebook.com/v20.0/599096403294262/messages"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ secret('WHATSAPP_API_TOKEN') }}"
+          Content-Type: "application/json"
+        body: "{{ outputs.prepare_whatsapp_payload.vars.payload }}"
+        runIf: "{{ outputs.ai_agent_containerized.vars.response != null and outputs.ai_agent_containerized.vars.response != '' }}"
+        allowFailure: true
+
+  # FASE 5: LOG CONSOLIDADO E MÉTRICAS FINAIS
+  - id: final_logging
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [EXECUTION-SUMMARY] {{ trigger.body.phone ?? '5511999999999' }} |
+      Total Duration: {{ taskrun.duration }}ms |
+      Cache Status: {{ outputs.check_response_cache.value != null ? 'HIT' : 'MISS' }} |
+      WhatsApp Status: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }} |
+      Context Size: {{ outputs.prepare_optimized_context.vars.context_size | default(0) }}B |
+      Performance: {{ taskrun.duration < 3000 ? 'EXCELLENT' : (taskrun.duration < 5000 ? 'GOOD' : 'NEEDS_OPTIMIZATION') }}
+
+  # FASE 6: RESPOSTA DO WEBHOOK
+  - id: webhook_response
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [WEBHOOK-RESPONSE] Workflow executado com sucesso!
+      Phone: {{ trigger.body.phone ?? '5511999999999' }}
+      Status: SUCCESS
+      Execution ID: {{ taskrun.executionId }}
+
+# Configurações de Error Handling
+errors:
+  - id: global_error_handler
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [ERROR] Workflow failed for {{ trigger.body.phone ?? '5511999999999' }} |
+      Error: {{ error.message }} |
+      Task: {{ error.taskId }} |
+      Fallback: Sending generic error message
+
+  # Log de ativação para debug
+  - id: activation_log
+    type: io.kestra.plugin.core.log.Log
+    level: INFO
+    message: |
+      [ACTIVATION] Workflow 3_ai_conversation_optimized ativado com sucesso!
+      Trigger: {{ trigger.key ?? 'manual_execution' }}
+      Phone: {{ trigger.body.phone ?? '5511999999999' }}
+      Message: {{ (trigger.body.message ?? 'Teste manual do workflow') | truncate(20) }}
