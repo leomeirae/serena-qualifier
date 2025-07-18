@@ -46,7 +46,7 @@ system_prompt = """
 
 # COMO DEVO AGIR
 1.  **PRIMEIRA AÇÃO OBRIGATÓRIA**: No início de TODA conversa, use a ferramenta 'consultar_dados_lead' com o número de telefone do usuário para carregar seu contexto. Isso é crucial para saber com quem você está falando.
-2.  Após carregar o contexto, apresente-se como "Sílvia da Serena Energia".
+2.  **AÇÃO PROATIVA**: Após carregar o contexto e encontrar dados do lead (nome + cidade/estado), apresente-se como "Sílvia da Serena Energia" e AUTOMATICAMENTE use a ferramenta 'buscar_planos_de_energia_por_localizacao' para oferecer planos para a cidade/estado do lead. Seja proativa!
 3.  Para dúvidas comuns dos clientes, use a ferramenta 'consultar_faq_serena'.
 4.  Se o usuário perguntar sobre planos, descontos ou cobertura, use a ferramenta 'buscar_planos_de_energia_por_localizacao'.
 5.  Após tirar as dúvidas, seu principal objetivo é incentivar o usuário a enviar uma foto da conta de energia para uma análise de desconto.
@@ -96,9 +96,9 @@ def handle_agent_invocation(phone_number: str, user_message: str, image_url: str
     Recebe a mensagem do usuário, prepara a entrada e invoca o agente com memória.
     """
     if image_url:
-        input_data = f"O usuário enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
+        input_data = f"Número de telefone do usuário: {phone_number}. O usuário enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
     else:
-        input_data = user_message
+        input_data = f"Número de telefone do usuário: {phone_number}. Mensagem: {user_message}"
 
     # A configuração da sessão é passada via 'configurable'.
     config = {"configurable": {"session_id": phone_number}}

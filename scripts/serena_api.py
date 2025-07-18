@@ -77,6 +77,10 @@ class SerenaAPI:
             
             elif response.status_code == 401:
                 logger.error("🔒 Erro 401: Token de autenticação inválido")
+                logger.error(f"🔑 Token usado: {self.token[:50]}...")
+                logger.error(f"📋 Headers enviados: {self.headers}")
+                logger.error(f"🌐 URL completa: {url}")
+                logger.error(f"📄 Response body: {response.text}")
                 raise Exception("Token de autenticação inválido ou expirado")
             
             elif response.status_code == 403:

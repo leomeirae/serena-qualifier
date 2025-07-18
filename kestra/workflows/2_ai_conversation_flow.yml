@@ -24,7 +24,7 @@ tasks:
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
-      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+      SERENA_API_TOKEN: "{{ envs.serena_api_token }}"
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       
     inputFiles:
@@ -45,9 +45,8 @@ tasks:
       
       phone_number = "{{ trigger.body.phone }}"
       user_message = "{{ trigger.body.message }}"
-      initial_input = phone_number
       
-      result = handle_agent_invocation(phone_number, user_message, initial_input)
+      result = handle_agent_invocation(phone_number, user_message)
       
       from kestra import Kestra
       Kestra.outputs({'response': result['response']})
@@ -74,7 +73,7 @@ tasks:
         "messaging_product": "whatsapp",
         "to": "{{ trigger.body.phone }}",
         "type": "text",
-        "text": { "body": "{{ outputs['run-silvia-agent'].vars.response }}" }
+        "text": { "body": {{ outputs['run-silvia-agent'].vars.response | json }} }
       }
     runIf: "{{ outputs['run-silvia-agent'].exitCode == 0 and outputs['run-silvia-agent'].vars.response != null and outputs['run-silvia-agent'].vars.response != '' }}"
 

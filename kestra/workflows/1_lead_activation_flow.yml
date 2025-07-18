@@ -5,7 +5,7 @@ description: "Workflow de ativação de lead v3 - Captura do formulário e envio
 triggers:
   - id: activate_production_lead
     type: io.kestra.plugin.core.trigger.Webhook
-    key: activate_production_lead
+    key: converse_production_lead
     description: "Recebe dados do formulário de captura de lead"
 
 variables:

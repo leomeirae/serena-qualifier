@@ -60,20 +60,16 @@ def main():
     kestra_url = "https://kestra.darwinai.com.br/api/v1"
     
     # Files to upload (local path -> namespace path)
+    # Apenas arquivos necessários para o workflow 2_ai_conversation_flow
     files_to_upload = {
-        # Dependências compartilhadas
-        'scripts/serena_api.py': 'scripts/serena_api.py',
-        'scripts/save_lead_to_supabase.py': 'scripts/save_lead_to_supabase.py',
-        
-        # Arquivos do novo Agente Sílvia
+        # Scripts do Agente Sílvia
         'scripts/agent_orchestrator.py': 'scripts/agent_orchestrator.py',
-        'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
         'scripts/agent_tools/knowledge_base_tool.py': 'scripts/agent_tools/knowledge_base_tool.py',
+        'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
         'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
         'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
-        
-        # Arquivo de dependências
-        'requirements.txt': 'requirements.txt'
+        'scripts/serena_api.py': 'scripts/serena_api.py',
+        'scripts/__init__.py': 'scripts/__init__.py'
     }
     
     success_count = 0

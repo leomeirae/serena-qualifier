@@ -68,7 +68,7 @@ def consultar_dados_lead(phone_number: str) -> str:
                             "name": result[0],
                             "city": result[1],
                             "state": result[2],
-                            "invoice_amount": result[3],
+                            "invoice_amount": float(result[3]) if result[3] is not None else 0.0,
                             "client_type": result[4],
                             "phone_format": format_to_try  # Para debug
                         }
@@ -88,7 +88,7 @@ def consultar_dados_lead(phone_number: str) -> str:
                             "name": result[0],
                             "city": result[1],
                             "state": result[2],
-                            "invoice_amount": result[3],
+                            "invoice_amount": float(result[3]) if result[3] is not None else 0.0,
                             "client_type": result[4],
                             "phone_number": result[5]  # O número encontrado no banco
                         }

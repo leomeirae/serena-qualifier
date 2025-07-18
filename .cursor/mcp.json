@@ -1,15 +1,152 @@
 {
   "mcpServers": {
-    "supabase": {
+    "hyperbrowser": {
+      "command": "npx",
+      "args": [
+        "hyperbrowser-mcp"
+      ],
+      "env": {
+        "HYPERBROWSER_API_KEY": "hb_ba60684093278526ce50d167cd33"
+      }
+    },
+    "mcp": {
       "command": "npx",
       "args": [
         "-y",
-        "@supabase/mcp-server-supabase@latest",
-        "--project-ref=ynyvrnasvcxyvjzhzbwf"
+        "@smithery/cli@latest",
+        "run",
+        "@hyperbrowserai/mcp",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7",
+        "--profile",
+        "institutional-cricket-DsiGVm"
+      ]
+    },
+    "Mem0 Memory Server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@big-omega/mem0-mcp",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7",
+        "--profile",
+        "institutional-cricket-DsiGVm"
+      ],
+      "env": {}
+    },
+    "TaskManager": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@kazuph/mcp-taskmanager",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7"
+      ],
+      "env": {}
+    },
+    "WhatsApp MCP Server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@jlucaso1/whatsapp-mcp-ts",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7"
+      ],
+      "env": {}
+    },
+    "Ref": {
+      "type": "http",
+      "url": "https://api.ref.tools/mcp?apiKey=ref-a17160adae350dca424c"
+    },
+    "hetzner": {
+      "type": "stdio",
+      "command": "/Users/user/Desktop/serena-qualifier/.venv/bin/python",
+      "args": [
+        "-m",
+        "mcp_hetzner.server"
       ],
       "env": {
-        "SUPABASE_ACCESS_TOKEN": "sbp_5caeef4e1d36d5298d21f8aac8802c8cfa73a312"
+        "HCLOUD_TOKEN": "xog6bvvI66XHaEoaX6i7p8hHV8Q64JtXABy6XmNe1DuG4w4Y7YXlW9fKc9GeaXGd"
       }
+    },
+    "Endgame": {
+      "command": "npx",
+      "args": [
+        "endgame-mcp@latest"
+      ],
+      "env": {
+        "API_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2ODc0ZmYwNDU2ZTA0NmIxMWEzOTdjMDQiLCJlbWFpbCI6ImxlbGVjb21laXJhbGluc0BnbWFpbC5jb20iLCJ0eXBlIjoiYXBpIiwiaWF0IjoxNzUyNDk3OTI0fQ.onvzktN2fipCcH0M88H7noYb9sKiV2hVhDrp6jY6LUg"
+      }
+    },
+    "coolify": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "coolify-mcp-server"
+      ],
+      "env": {
+        "COOLIFY_BASE_URL": "https://coolify.darwinai.com.br",
+        "COOLIFY_TOKEN": "Q2VEjCscl4DQN2quZLhYKuNgKRMVpV8TbDtjzlUs7ed62b2a"
+      },
+      "disabled": false,
+      "autoApprove": []
+    },
+    "kestra": {
+      "type": "stdio",
+      "command": "/Users/user/.local/bin/uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/user/Desktop/serena-qualifier/mcp-server-python/src",
+        "server.py"
+      ],
+      "env": {
+        "KESTRA_BASE_URL": "https://kestra.darwinai.com.br/api/v1",
+        "KESTRA_MCP_DISABLED_TOOLS": "ee"
+      }
+    },
+    "Context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@upstash/context7-mcp",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7",
+        "--profile",
+        "institutional-cricket-DsiGVm"
+      ],
+      "env": {}
+    },
+    "YouTube MCP Server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@icraft2170/youtube-data-mcp-server",
+        "--key",
+        "6917489a-a238-4dcf-8602-7fbf5dad4de7",
+        "--profile",
+        "institutional-cricket-DsiGVm"
+      ],
+      "env": {}
+    },
+    "byterover-mcp": {
+      "url": "https://mcp.byterover.dev/mcp?machineId=1f062735-83b0-6770-85c8-35ae6a14e76d"
     }
   }
 } 
