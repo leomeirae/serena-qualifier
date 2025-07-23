@@ -123,32 +123,29 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
         if not entry: return None
 
         value = entry[0].get('changes', [{}])[0].get('value', {})
-        
-        # Ignora webhooks de status de entrega/leitura
+
         if 'statuses' in value:
             logger.info("✅ Webhook de status recebido e ignorado.")
             return None
-        
+
         message = value.get('messages', [{}])[0]
         if not message:
             logger.info("ℹ️ Webhook recebido sem um objeto de mensagem válido.")
             return None
-            
+
         phone_number = message.get('from', '')
         message_type = message.get('type', '')
         timestamp = message.get('timestamp', str(int(datetime.now().timestamp())))
-        
+
         message_text = ""
         media_id = None
-        
-        # Lógica de extração baseada no tipo de mensagem
+
         if message_type == 'text':
             message_text = message.get('text', {}).get('body', '')
         elif message_type == 'image':
             media_id = message.get('image', {}).get('id', '')
             message_text = message.get('image', {}).get('caption', 'Imagem recebida')
         elif message_type == 'button':
-            # --- ESTA É A CORREÇÃO PRINCIPAL ---
             message_text = message.get('button', {}).get('text', 'Clique de botão sem texto')
         elif message_type == 'interactive':
             reply = message.get('interactive', {}).get('button_reply', {})
@@ -156,15 +153,16 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
         else:
             message_text = f"Tipo de mensagem '{message_type}' não suportado."
 
-        logger.info(f"📱 Mensagem do usuário extraída com SUCESSO: '{message_text}'")
-        
+        # --- MUDANÇA PARA VERIFICAÇÃO ---
+        logger.info(f"📱 [VERSÃO CORRETA] Mensagem do usuário extraída: '{message_text}'")
+
         return WhatsAppMessage(
             phone=phone_number,
             message=message_text,
             media_id=media_id,
             timestamp=timestamp
         )
-        
+
     except Exception as e:
         logger.error(f"💥 Erro inesperado ao extrair mensagem: {str(e)}")
         return None
