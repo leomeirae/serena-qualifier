@@ -35,7 +35,7 @@ tasks:
     type: io.kestra.plugin.core.kv.Get
     key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
     allowFailure: true
-
+    
   # FASE 3: PROCESSAMENTO IA
   - id: ai_agent_processing
     type: io.kestra.plugin.scripts.python.Script
@@ -49,9 +49,10 @@ tasks:
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
-      USER_MESSAGE: "{{ trigger.body.message ?? 'Teste manual do workflow' }}"
-      PHONE_NUMBER: "{{ trigger.body.phone ?? '5511999999999' }}"
+      USER_MESSAGE: "{{ trigger.body.message }}"
+      PHONE_NUMBER: "{{ trigger.body.phone }}"
       REDIS_URL: "{{ vars.redis_url }}"
+      PYTHONPATH: "/app"
     inputFiles:
       scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
       scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
@@ -59,9 +60,13 @@ tasks:
       scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
       scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
       scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+      scripts/lead_data_utils.py: "{{ read('scripts/lead_data_utils.py') }}"
       scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
       scripts/agent_tools/__init__.py: ""
     script: |
+      # ADICIONE ESTAS DUAS LINHAS NO TOPO DO SCRIPT:
+      import sys
+      sys.path.insert(0, '/app')
       import os
       import logging
       from kestra import Kestra
@@ -77,14 +82,15 @@ tasks:
           
           from scripts.agent_orchestrator import handle_agent_invocation
           
-          phone_number = "{{ trigger.body.phone ?? '5511999999999' }}"
-          user_message = "{{ trigger.body.message ?? 'Teste manual do workflow' }}"
+          # CORREÇÃO: Pega os dados das variáveis de ambiente, que vêm da task anterior.
+          phone_number = os.environ.get('PHONE_NUMBER')
+          user_message = os.environ.get('USER_MESSAGE')
           
           logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}...")
           
           result = handle_agent_invocation(phone_number, user_message)
           
-          response = result.get('response', 'Desculpe, ocorreu um erro interno. Tente novamente mais tarde.')
+          response = result.get('response', 'Desculpe, ocorreu um erro interno.')
           logger.info(f"[AI] Resposta gerada: {len(response)} chars")
           
           Kestra.outputs({'response': response})
@@ -153,6 +159,7 @@ tasks:
     type: io.kestra.plugin.core.log.Log
     message: |
       [SUCCESS] {{ trigger.body.phone ?? '5511999999999' }} | 
+      Message Type: {{ 'N/A' }} |
       First Contact: {{ outputs.check_first_contact.value == null ? 'YES' : 'NO' }} | 
       AI Response: {{ outputs.ai_agent_processing.vars.response != null ? 'SUCCESS' : 'FAILED' }} | 
       WhatsApp: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }}
@@ -162,5 +169,4 @@ errors:
   - id: global_error_handler
     type: io.kestra.plugin.core.log.Log
     message: |
-      [ERROR] Workflow failed for {{ trigger.body.phone ?? '5511999999999' }} | 
-      Error: {{ execution.error }}
+      [ERROR] Workflow failed for {{ trigger.body.phone ?? '5511999999999' }}

@@ -18,26 +18,29 @@ Sistema automatizado para qualificação de leads de energia solar via WhatsApp 
 ```
 serena-qualifier/
 ├── scripts/
-│   ├── serena_agent/           # 🆕 LangChain Framework
-│   │   ├── core_agent.py       # Orquestrador principal
-│   │   ├── tools/              # Wrappers LangChain
-│   │   │   ├── conversation_tool.py
-│   │   │   ├── serena_api_tool.py  
-│   │   │   ├── ocr_tool.py     # 🆕 OCR inteligente para contas
-│   │   │   └── rag_tool.py     # 🆕 RAG para dúvidas gerais
-│   │   └── prompts/            # Templates padronizados
-│   │       ├── classification.py
-│   │       ├── extraction.py
-│   │       └── conversation.py
-│   ├── ai_agent.py             # ✅ Agente IA (preservado)
-│   ├── serena_api.py           # ✅ API real Serena
-│   ├── ocr_processor.py        # ✅ Processamento faturas
-│   └── whatsapp_sender.py      # ✅ Envio WhatsApp
-├── kestra/workflows/           # ✅ Workflows Kestra
-├── knowledge_base/             # 🆕 Base de conhecimento RAG
-│   └── faq_serena.txt          # FAQ sobre energia solar
-├── utils/                      # ✅ Utilitários
-└── docker-compose.yml          # ✅ Stack completa
+│   ├── agent_tools/              # 🆕 Ferramentas LangChain
+│   │   ├── knowledge_base_tool.py # RAG para dúvidas gerais
+│   │   ├── faq_data.py           # Dados para RAG
+│   │   ├── serena_tools.py       # Ferramentas para API Serena
+│   │   └── supabase_agent_tools.py # Ferramentas para Supabase
+│   ├── agent_orchestrator.py     # 🆕 Orquestrador principal LangChain
+│   ├── extract_message_content.py # 🆕 Processador de mensagens de botão
+│   ├── ai_conversation_handler.py # Manipulador de conversas
+│   ├── conversation_context.py   # Gerenciador de contexto
+│   ├── location_extractor.py     # Extrator de localização
+│   ├── serena_api.py             # ✅ API real Serena
+│   └── upload_namespace_files.py # Upload para Kestra
+├── kestra/workflows/             # ✅ Workflows Kestra
+│   ├── 1_lead_activation_flow.yml # Ativação de leads
+│   ├── 2_ai_conversation_flow.yml # Conversa IA básica
+│   └── 3_ai_conversation_optimized.yml # 🆕 Conversa IA otimizada
+├── tests/                        # 🆕 Testes automatizados
+│   ├── test_button_message_type.py # Teste de botões
+│   ├── test_ativar_perfil_button.py # Teste botão Ativar Perfil
+│   └── test_lead_data_flow.py    # Teste fluxo de dados do lead
+├── knowledge_base/               # 🆕 Base de conhecimento RAG
+│   └── faq_serena.txt            # FAQ sobre energia solar
+└── docker-compose.yml            # ✅ Stack completa
 ```
 
 ## 🚀 Setup Rápido
@@ -61,6 +64,47 @@ python test_serena_agent_structure.py
 docker-compose up -d
 ```
 
+## 🔄 Fluxo de Dados do Lead (NOVO)
+
+O sistema agora implementa um fluxo de dados otimizado para leads:
+
+### 🔧 Como Funciona:
+1. **Formulário Landing Page**: Usuário preenche dados (nome, email, telefone, cidade, estado)
+2. **Lead Activation**: `1_lead_activation_flow.yml` salva dados no Supabase
+3. **Botão "Ativar Perfil"**: Usuário clica no botão no WhatsApp
+4. **Consulta Automática**: IA usa `consultar_dados_lead` para obter dados já salvos
+5. **Busca de Planos**: IA usa `buscar_planos_de_energia_por_localizacao` com cidade/estado já salvos
+6. **Resposta Personalizada**: IA apresenta planos disponíveis sem pedir informações redundantes
+
+### 📱 Exemplo de Resposta:
+```
+Olá, Leonardo! Eu sou a Sílvia, da Serena Energia. É um prazer te receber!
+
+Vejo que você está em Recife/PE. Deixe-me verificar os planos disponíveis para sua região...
+
+Ótimas notícias! Encontrei 3 planos disponíveis da CELPE para Recife:
+1. Plano Básico-14% - Desconto: 14% - Fidelidade: 0 meses
+2. Plano Intermediário-16% - Desconto: 16% - Fidelidade: 36 meses
+3. Plano Premium-18% - Desconto: 18% - Fidelidade: 60 meses - Benefício: 1ª fatura paga pela Serena
+
+Qual desses planos mais te interessa?
+```
+
+## 🔘 Processamento de Botões WhatsApp (NOVO)
+
+O sistema agora detecta e processa corretamente interações com botões do WhatsApp:
+
+### 🔧 Como Funciona:
+1. **Detecção de Botões**: Identifica mensagens do tipo "button" do WhatsApp
+2. **Extração de Contexto**: Extrai informações relevantes do botão clicado
+3. **Processamento Específico**: Trata cada tipo de botão de forma personalizada
+4. **Resposta Contextual**: Gera respostas específicas para cada tipo de interação
+
+### 🎯 Botões Suportados:
+- **Ativar Perfil**: Inicia o cadastro e busca planos disponíveis
+- **Mensagens de Tipo Button**: Detecta formato especial do webhook
+- **Botões Genéricos**: Suporte para outros tipos de botões interativos
+
 ## ⏰ Funcionalidade de Lembrete por Timeout (NOVO)
 
 O sistema agora inclui **lembrete automático** para leads que não respondem:
@@ -82,12 +126,6 @@ Ainda tem interesse em economizar na conta de luz? Posso te ajudar a encontrar o
 É só me responder que continuamos de onde paramos! 👍
 ```
 
-### 🏗️ Arquitetura:
-- **Workflow**: `ai-conversation.yml` (v6.0.0)
-- **Timeout**: ISO 8601 format (`PT2H` = 2 horas)
-- **Analytics**: Tracking completo de timeout vs resposta
-- **Webhook Key**: Único por conversation_id
-
 ## 🧠 Funcionalidade RAG para Dúvidas Gerais (NOVO)
 
 O sistema agora inclui **RAG (Retrieval-Augmented Generation)** para responder dúvidas gerais sobre energia solar:
@@ -103,17 +141,6 @@ O sistema agora inclui **RAG (Retrieval-Augmented Generation)** para responder d
 - **Sobre a Serena**: "Como a Serena funciona?", "Qual o processo de instalação?"
 - **Educacional**: Informações técnicas sobre energia fotovoltaica
 
-### 🔍 Diferenciação Inteligente:
-- **rag_tool**: Para dúvidas gerais e educacionais
-- **serena_api**: Para consultas específicas de planos e cobertura por região
-
-### 🏗️ Arquitetura RAG:
-- **Knowledge Base**: `knowledge_base/faq_serena.txt`
-- **Embeddings**: OpenAI text-embedding-ada-002
-- **Vector Store**: FAISS IndexFlatIP com normalização L2
-- **Text Splitting**: Chunks de 500 caracteres com overlap de 50
-- **Persistência**: Índice salvo em disco para otimização
-
 ## 🔍 Processamento Inteligente de Contas de Energia (NOVO)
 
 O sistema agora inclui **OCR avançado** para processamento automático de contas de energia:
@@ -125,69 +152,29 @@ O sistema agora inclui **OCR avançado** para processamento automático de conta
 4. **Qualificação Inteligente**: Qualifica leads automaticamente (mínimo R$ 200/mês)
 5. **Respostas Personalizadas**: Gera respostas contextuais baseadas nos dados extraídos
 
-### 🎯 Funcionalidades OCR:
-- **6 Ações Disponíveis**: 
-  - `process_image`: Processamento completo da conta
-  - `extract_fields`: Extração de campos específicos
-  - `validate_invoice`: Validação de dados extraídos
-  - `identify_distributor`: Identificação da distribuidora
-  - `validate_structured`: Validação estruturada completa
-  - `get_supported_distributors`: Lista de distribuidoras suportadas
-
 ### 🏢 Distribuidoras Suportadas:
 - **20+ Distribuidoras**: CEMIG, ENEL, LIGHT, CPFL, ELEKTRO, COELBA, CELPE, COSERN, COELCE, CELG, CEB, COPEL, RGE, CEEE, CELESC, ENERGISA, AMPLA, BANDEIRANTE, PIRATININGA, AES SUL
-
-### 🔍 Detecção de Contexto:
-- **Detecta Contas**: "conta", "fatura", "luz", "CEMIG", "ENEL", etc.
-- **Exclui Conversas**: "energia solar", "sobre energia", "quanto custa", etc.
-- **Suporte a Imagens**: Processa automaticamente quando detecta media_id
-
-### 🎯 Fluxo de Qualificação:
-```
-1. DETECÇÃO: Identifica contexto de conta de energia
-2. PROCESSAMENTO: Extrai dados via OCR estruturado
-3. VALIDAÇÃO: Aplica 8 critérios de validação
-4. QUALIFICAÇÃO: Verifica critério mínimo (R$ 200/mês)
-5. RESPOSTA: Gera resposta personalizada com dados extraídos
-```
-
-### 📊 Exemplo de Resposta:
-```
-✅ Perfeito! Analisei sua conta da CEMIG.
-
-📊 Dados extraídos:
-• Cliente: MARIA SILVA
-• Valor atual: R$ 387,45
-• Consumo: 450 kWh
-
-🎯 Ótima notícia! Com esse perfil você pode economizar significativamente...
-```
 
 ## 🧪 Testes
 
 ```bash
-# Teste estrutura LangChain
+# Testes de estrutura e API
 python test_serena_agent_structure.py
-
-# Teste API Serena (real)
 python test_serena_api_detailed.py
 
-# Teste integração completa
-python test_ai_integration.py
+# Testes de botões e interações
+python test_button_message_type.py
+python test_ativar_perfil_button.py
+python test_lead_data_flow.py
 
-# Testes de timeout/lembrete (NOVO)
-pytest tests/test_timeout_functionality.py -v
-pytest tests/test_waitforwebhook_behavior.py -v
-
-# Testes de funcionalidade RAG (NOVO)
+# Testes de funcionalidade RAG
 pytest tests/test_rag_functionality.py -v
 
-# Testes de OCR inteligente (NOVO)
+# Testes de OCR inteligente
 pytest tests/test_ocr_structured_extraction.py -v
-pytest tests/test_core_agent_ocr_integration.py -v
 ```
 
-## 📊 SLAs de Performance e Latência (NOVO)
+## 📊 SLAs de Performance e Latência
 
 O sistema foi projetado e validado para atender rígidos acordos de nível de serviço (SLAs) de latência:
 
@@ -197,19 +184,10 @@ O sistema foi projetado e validado para atender rígidos acordos de nível de se
 - **Envio WhatsApp**: < 5 segundos incluindo retries
 - **Webhook Response**: < 200ms para API de webhook WhatsApp
 
-### 🧪 Validação e Monitoramento:
-- **Testes automatizados**: `test_performance_sla()` valida todos os SLAs em ambiente controlado
-- **Instrumentação**: Métricas de latência em pontos críticos do sistema
-- **Analytics**: Tracking em tempo real de tempos de resposta
-- **Alertas**: Configurados para notificar quando SLAs são violados
-
 ### 📈 Métricas Atuais (Ambiente de Produção):
 - **Tempo médio lead-activation**: 1.23s (SLA: < 3s)
 - **Taxa de sucesso**: 99.8% de mensagens entregues dentro do SLA
 - **Latência p95**: 2.1s (95% das requisições abaixo desse valor)
-- **Overhead de rede**: < 300ms para comunicação entre containers Docker
-
-Os SLAs são testados e validados automaticamente a cada commit através dos testes de performance inclusos.
 
 ## 📋 Status Desenvolvimento
 
@@ -217,23 +195,25 @@ Os SLAs são testados e validados automaticamente a cada commit através dos tes
 - ✅ **TASK 2**: LangChain real funcionando com AgentExecutor ativo
 - ✅ **TASK 3**: Workflows Kestra otimizados e casos avançados
 - ✅ **TASK 4**: Integração real com API Serena (dados reais)
-- ✅ **TASK 5**: Funcionalidade de Lembrete por Timeout (NOVO ⏰)
-- ✅ **OBJETIVO 2**: Funcionalidade RAG para Dúvidas Gerais (NOVO 🧠)
-- ✅ **OBJETIVO 3**: Processamento Inteligente de Contas de Energia (NOVO 🔍)
+- ✅ **TASK 5**: Funcionalidade de Lembrete por Timeout
+- ✅ **TASK 6**: Processamento de botões WhatsApp (NOVO 🔘)
+- ✅ **TASK 7**: Fluxo de dados do lead otimizado (NOVO 🔄)
+- ✅ **OBJETIVO 1**: Funcionalidade RAG para Dúvidas Gerais
+- ✅ **OBJETIVO 2**: Processamento Inteligente de Contas de Energia
 
-**🚀 SISTEMA COMPLETO E OPERACIONAL COM TIMEOUT/LEMBRETE + RAG + OCR INTELIGENTE!**
+**🚀 SISTEMA COMPLETO E OPERACIONAL COM PROCESSAMENTO DE BOTÕES + FLUXO DE DADOS OTIMIZADO + RAG + OCR INTELIGENTE!**
 
 ### 🎯 Funcionalidades Ativas:
 - **AgentExecutor LangChain** com OpenAI GPT-4o-mini
-- **4 Tools reais**: Supabase + API Serena + OCR Inteligente + RAG (NOVO 🧠🔍)
+- **5 Tools reais**: Supabase + API Serena + OCR + RAG + Processamento de Botões (NOVO 🔘)
 - **Modo híbrido**: LangChain + prompts otimizado
-- **Workflows Kestra v6**: Análise inteligente + Timeout/Lembrete ⏰
-- **Lembrete Automático**: WaitForWebhook com timeout de 2 horas (NOVO ✨)
-- **RAG Inteligente**: Base de conhecimento + busca semântica (NOVO 🧠)
-- **OCR Avançado**: Processamento automático de contas de energia (NOVO 🔍)
+- **Workflows Kestra v6**: Análise inteligente + Timeout/Lembrete
+- **Detecção de Botões**: Processamento inteligente de interações WhatsApp (NOVO 🔘)
+- **Fluxo de Dados Otimizado**: Uso de dados já salvos no Supabase (NOVO 🔄)
+- **RAG Inteligente**: Base de conhecimento + busca semântica
+- **OCR Avançado**: Processamento automático de contas de energia
 - **Detecção Contextual**: Identifica automaticamente imagens de contas vs. conversas
 - **Qualificação Automática**: Valida leads baseado em critérios de consumo/valor
-- **Casos avançados**: Multi-contexto + qualificação dinâmica
 - **Respostas personalizadas**: Adaptativas por categoria (premium/qualificado)
 - **Analytics avançados**: Métricas de performance e conversão
 - **100% compatibilidade** com workflows Kestra existentes
@@ -243,13 +223,15 @@ Os SLAs são testados e validados automaticamente a cada commit através dos tes
 - [`PLANNING.md`](PLANNING.md) - Planejamento arquitetural
 - [`TASK.md`](TASK.md) - Tarefas específicas e progresso
 - [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) - Guia completo implementação
+- [`BUTTON_MESSAGE_TYPE_FIX.md`](BUTTON_MESSAGE_TYPE_FIX.md) - Correção para mensagens de botão (NOVO 🔘)
+- [`LEAD_DATA_FLOW_FIX.md`](LEAD_DATA_FLOW_FIX.md) - Otimização do fluxo de dados do lead (NOVO 🔄)
 
 ## 🔧 Tecnologias
 
 - **Python 3.11+** - Backend principal
-- **LangChain 0.2.17** - Framework IA com RAG (NOVO)
+- **LangChain 0.2.17** - Framework IA com RAG
 - **OpenAI GPT-4o-mini** - Modelo conversacional + embeddings
-- **FAISS 1.8.0** - Vector database para busca semântica (NOVO)
+- **FAISS 1.8.0** - Vector database para busca semântica
 - **FastAPI** - APIs REST
 - **Supabase** - Database PostgreSQL
 - **Docker** - Containerização

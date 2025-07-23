@@ -1,120 +1,113 @@
-### serena-qualifier Cursor AI Rules
-# Arquivo de regras para o projeto "serena-qualifier"
-# Local: `.cursor/rules/serena-qualifier.rules.yaml`
-
 # --------------------------------------------------------------------------------
-# Regra 1: Contexto Geral do Projeto (@workspace)
+# Rule 1: General Project Context (@workspace)
+# UNCHANGED: Core project definition remains the same.
 # --------------------------------------------------------------------------------
 - rule:
     for: "@workspace"
     type: "general_context"
     content: |
-      Nome do Projeto: serena-qualifier
-      Objetivo: Sistema automatizado para captura, qualificação e persistência de leads para a Serena Energia.
-      Persona da IA: "Sílvia", representante virtual simpática e bem-humorada.
-      Principais Tecnologias:
-        • Orquestração: Kestra (YAML em `kestra/workflows`).
-        • IA: LangChain com modelo `gpt-4o-mini`. Orquestrador: `scripts/agent_orchestrator.py`.
-        • Banco de Dados: Supabase (PostgreSQL). Salvamento em `scripts/save_lead_to_supabase.py`.
-        • Comunicação: WhatsApp Business API via `scripts/send_whatsapp_template.py`.
-        • API Externa: Serena Energia (`scripts/serena_api.py`).
+      Project Name: serena-qualifier
+      Objective: Automated system for lead capture, qualification, and persistence for Serena Energia.
+      AI Persona: "Sílvia," a friendly and witty virtual representative.
+      Core Technologies:
+        • Orchestration: Kestra (YAML in `kestra/workflows`).
+        • AI: LangChain with `gpt-4o-mini` model. Orchestrator: `scripts/agent_orchestrator.py`.
+        • Database: Supabase (PostgreSQL). Persistence script: `scripts/save_lead_to_supabase.py`.
+        • Communication: WhatsApp Business API via `scripts/send_whatsapp_template.py`.
+        • External API: Serena Energia (`scripts/serena_api.py`).
 
 # --------------------------------------------------------------------------------
-# Regra 2: Persona e Estilo Conversacional (persona_guidelines)
+# Rule 2: Source of Truth (source_of_truth)
+# UPDATED: Now points to the refactoring plan as the primary guide.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "Refactoring Plan Document"
+    type: "source_of_truth"
+    content: |
+      The "Definitive Refactoring Plan: SDR Agent Silvia v2.0" is the canonical source for this task. All actions must strictly follow its phases and instructions. The MASTER_GUIDE_FINAL.md should be used for context on original intent, but the refactoring plan dictates all current changes.
+
+# --------------------------------------------------------------------------------
+# NEW Rule 3: Prime Directive - Surgical Code Modification
+# VITAL OBSERVATION 1 INCORPORATED.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "python, yml"
+    type: "modification_protocol"
+    content: |
+      **Prime Directive:** Avoid rewriting entire files or functions for point changes. Your primary method of modification must be surgical.
+      1.  **Identify the target:** Locate the specific function, class, or YAML block to be changed.
+      2.  **Replace precisely:** Replace only the identified block of code. Do not refactor or alter surrounding code that is not part of the current instruction.
+      3.  **Preserve functionality:** This approach minimizes the risk of introducing unintended side effects and breaking existing, functional code.
+
+# --------------------------------------------------------------------------------
+# NEW Rule 4: Stateful Refactoring with MCP Server
+# VITAL OBSERVATION 2 INCORPORATED.
 # --------------------------------------------------------------------------------
 - rule:
     for: "@workspace"
-    type: "persona_guidelines"
+    type: "workflow_memory_protocol"
     content: |
-      • Silvia deve usar tom simpático e informal-profissional ao falar com leads.
-      • Frases curtas, diretas, com humor leve quando apropriado.
-      • Em interações técnicas ou internas, adotar tom neutro e profissional.
+      **MCP Integration:** Use the MCP server Byterover to create and manage memories of the refactoring process.
+      1.  **Create a Memory Point:** After completing each major phase outlined in the "Definitive Refactoring Plan" (e.g., "Phase 1: Centralize Intelligence," "Phase 2: Simplify Kestra Workflow"), create a new memory point.
+      2.  **Memory Content:** The memory should contain a summary of the action taken, the files modified, and a confirmation that the step aligns with the refactoring plan.
+      3.  **Retrieval:** Refer to these memory points if you need to recall the state of the project at a previous stage or to ensure organizational consistency.
 
 # --------------------------------------------------------------------------------
-# Regra 3: Fonte Canônica de Informação (source_of_truth)
+# NEW Rule 5: Code Removal Protocol
+# SUPPORTS REFACTORING PLAN: Provides a safe way to handle file deletions.
 # --------------------------------------------------------------------------------
 - rule:
-    for: "MASTER_GUIDE_FINAL.md"
-    type: "source_of_truth"
+    for: "@workspace"
+    type: "code_removal_protocol"
     content: |
-      Este é o documento definitivo do projeto: consulte sempre para arquitetura, fluxos, modelo de dados e decisões de design.
+      When the refactoring plan instructs the deletion of a file (e.g., `scripts/extract_message_content.py`):
+      1.  **Verify Dependencies:** First, confirm that no other files in the workspace import or reference the file to be deleted.
+      2.  **Confirm with Plan:** Double-check that the deletion is explicitly mandated by the "Definitive Refactoring Plan".
+      3.  **Execute Deletion:** Only after these checks, proceed with deleting the file.
 
 # --------------------------------------------------------------------------------
-# Regra 4: Padrões de Código Python (coding_style)
+# NEW Rule 6: Verification and Validation Directive
+# SUPPORTS REFACTORING PLAN: Enforces self-correction and alignment.
+# --------------------------------------------------------------------------------
+- rule:
+    for: "@workspace"
+    type: "verification_directive"
+    content: |
+      Before finalizing any code modification, you must perform a self-verification step.
+      1.  **Re-read the instruction:** Review the specific step from the refactoring plan you just completed.
+      2.  **Compare the diff:** Analyze the changes you made against the instructions.
+      3.  **Confirm alignment:** Verbally (in your thought process) confirm that your changes are a precise and complete implementation of the instruction. If there is a discrepancy, correct it before proceeding.
+
+# --------------------------------------------------------------------------------
+# Rule 7: Python Coding Standards (coding_style)
+# UNCHANGED: These are excellent standards and will be maintained.
 # --------------------------------------------------------------------------------
 - rule:
     for: "python"
     type: "coding_style"
     content: |
       Logging:
-        • Use `logging`, não `print()`.
-        • Formato padrão: "[MÓDULO] [FUNÇÃO] - mensagem".
-          Ex: `logger.info("[send_whatsapp_template] [enviar_template] - sucesso.")`
-      Tipagem:
-        • Use type hints consistentes para funções e variáveis.
-          Ex: `def fn(nome: str, dados: Optional[Dict[str, Any]]) -> bool:`
+        • Use `logging`, not `print()`.
+        • Standard format: "[MODULE] [FUNCTION] - message".
+      Typing:
+        • Use consistent type hints for functions and variables.
+          Ex: `def fn(name: str, data: Optional[Dict[str, Any]]) -> bool:`
       Docstrings:
-        • Todas as funções públicas, classes e módulos devem ter docstrings no formato Google.
-      Variáveis de Ambiente:
-        • Nunca hardcode tokens ou credenciais.
-        • Use `os.getenv()` ou `load_dotenv()` e masqueie valores em logs.
-      Tratamento de Erros:
-        • Blocos `try...except` robustos em I/O e processamento de dados externos.
-      Estrutura de Arquivo:
-        1. Importações
-        2. Configuração de logging
-        3. Configs/variáveis globais
-        4. Funções utilitárias internas
-        5. Classes principais
-        6. Funções públicas
-        7. Bloco `if __name__ == "__main__":`
+        • All public functions, classes, and modules must have Google-format docstrings.
+      Environment Variables:
+        • Never hardcode tokens or credentials. Use `os.getenv()`.
+      Error Handling:
+        • Use robust `try...except` blocks for all I/O and external data processing.
 
 # --------------------------------------------------------------------------------
-# Regra 5: Interação com Supabase e API Serena (api_client_usage)
-# --------------------------------------------------------------------------------
-- rule:
-    for: "scripts/serena_api.py"
-    type: "api_client_usage"
-    content: |
-      • Use a classe `SerenaAPI` para autenticação e chamadas.
-      • Métodos: `get_plans(cidade: str, estado: str)` retorna planos de energia.
-      • Tokens e URLs são carregados do ambiente (`SERENA_API_TOKEN`, `SERENA_API_BASE_URL`).
-- rule:
-    for: "scripts/save_lead_to_supabase.py"
-    type: "database_interaction"
-    content: |
-      • Use `INSERT ... ON CONFLICT DO UPDATE` para evitar duplicatas de `phone_number`.
-      • Centralize lógica de conexão em um helper reutilizável.
-
-# --------------------------------------------------------------------------------
-# Regra 6: Definição de Ferramentas LangChain (langchain_tool_definition)
-# --------------------------------------------------------------------------------
-- rule:
-    for: "**/agent_tools/**/*.py"
-    type: "langchain_tool_definition"
-    content: |
-      1. Use `@tool` da `langchain.tools`.
-      2. Docstring detalhada: finalidade, formato de entrada e saída.
-      3. Registre a ferramenta em `tools` no `agent_orchestrator.py`.
-      Ex:
-      ```python
-      @tool
-def buscar_planos(cidade_estado: str) -> str:
-          """
-          Busca planos de energia para 'cidade, estado'.
-          Retorna lista de planos ou mensagem de indisponibilidade.
-          """
-          ...
-      ```
-
-# --------------------------------------------------------------------------------
-# Regra 7: Boas Práticas em Workflows Kestra (kestra_workflow_best_practices)
+# Rule 8: Kestra Workflow Best Practices (kestra_workflow_best_practices)
+# UPDATED: Emphasizes the simplification goal of the refactor.
 # --------------------------------------------------------------------------------
 - rule:
     for: "**/*.yml"
     type: "kestra_workflow_best_practices"
     content: |
-      • Cada tarefa crítica deve incluir verificação de sucesso (`runIf` ou validação de outputs).
-      • Nunca use outputs sem sanitização ou fallback.
-      • Documente propósito de cada fluxo no cabeçalho YAML.
-
+      • **Refactoring Goal:** The primary goal is simplification. Remove redundant tasks and streamline the data flow from `trigger` to the final processing step.
+      • Each critical task must include success verification (`runIf` or output validation).
+      • Never use outputs without sanitization or a fallback default value.
+      • Document the purpose of each flow in the YAML header.

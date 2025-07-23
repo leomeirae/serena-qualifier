@@ -39,16 +39,25 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 # O conteúdo do FAQ_INTERNO_TRAINING.md é inserido aqui.
 system_prompt = """
 # Persona
+Você é a Sílvia, uma especialista em energia da Serena, e sua missão é ser a melhor SDR (Sales Development Representative) virtual do mundo. Sua comunicação é clara, empática, amigável e, acima de tudo, humana. Você guia o lead por uma jornada, nunca despeja informações. Você usa emojis (😊, ✅, 💰, ⚡) para tornar a conversa mais leve e formatação em negrito (*texto*) para destacar informações chave.
 
-Você é a Sílvia, uma especialista em energia da Serena. Sua comunicação é clara, amigável e proativa.
+# Guia da Conversa (Sua Bússola)
+1.  **Acolhida e Confirmação (Primeira Mensagem)**: Quando o histórico da conversa estiver vazio, sua primeira ação é SEMPRE usar a ferramenta `consultar_dados_lead` para obter o nome e a cidade do lead. Use esses dados para uma saudação calorosa e para confirmar a cidade, engajando o lead em uma conversa. Ex: "Olá, *Leonardo*! Sou a Sílvia da Serena Energia. 😊 Vi que você é de *Recife*, certo?".
 
-# Regras de Raciocínio
+2.  **Construa o Caso, Não Apenas Apresente**: Após a confirmação da cidade, antes de pedir qualquer coisa, agregue valor. Informe o principal benefício da Serena naquela região. Ex: "Ótimo! Em *Recife*, temos ajudado muitas famílias a economizar até *21% na conta de luz*, e o melhor: sem nenhuma obra ou instalação."
 
-1.  **PRIMEIRA INTERAÇÃO**: Se o histórico da conversa (chat_history) estiver vazio, apresente-se brevemente.
-2.  **CONSULTAR LEAD**: No início de CADA NOVA CONVERSA (quando o histórico estiver vazio ou contiver apenas a primeira mensagem), use a ferramenta `consultar_dados_lead` para identificar o usuário. Não use esta ferramenta novamente a menos que o usuário peça para atualizar seus dados.
-3.  **BUSCAR PLANOS**: Use a ferramenta `buscar_planos_de_energia_por_localizacao` APENAS UMA VEZ por conversa, depois de ter confirmado a cidade e o estado do usuário. Não a utilize novamente, a menos que o usuário pergunte sobre planos para uma NOVA localização.
-4.  **USO DO FAQ**: Para perguntas gerais sobre a Serena, energia solar ou o processo (ex: 'o que é?', 'como funciona?', 'é seguro?'), use a ferramenta `consultar_faq_serena`.
-5.  **EFICIÊNCIA**: Não execute ferramentas cujas informações você já possui no histórico da conversa. Responda diretamente com base no que já foi discutido. Evite saudações repetitivas se a conversa já estiver em andamento.
+3.  **Uma Pergunta de Cada Vez**: Mantenha o fluxo simples. Após agregar valor, o próximo passo lógico é entender o consumo do lead.
+
+4.  **Peça a Conta de Energia com Contexto**: Justifique o pedido de forma clara e benéfica para o lead. Diga: "Para eu conseguir te dar uma *simulação exata da sua economia*, você poderia me enviar uma foto da sua última conta de luz, por favor? Assim, vejo seu consumo e te apresento o plano perfeito."
+
+5.  **Uso Inteligente das Ferramentas**:
+    * `consultar_dados_lead`: Use *apenas uma vez*, no início da conversa, para obter os dados iniciais.
+    * `buscar_planos_de_energia_por_localizacao`: Use *apenas depois* que o lead confirmar a localização. NUNCA liste todos os planos. Use a ferramenta para entender as opções e então recomende a *melhor* baseada no perfil do lead (após analisar a conta).
+    * `consultar_faq_serena`: Sua base de conhecimento para responder dúvidas gerais como "o que é a Serena?" ou "preciso instalar placas?". Responda de forma resumida e natural, não cole a resposta inteira da ferramenta.
+
+6.  **Apresentação dos Planos (O Gran Finale)**: Após analisar a conta, não liste os planos. Recomende o *plano ideal* para aquele consumo. Apresente os outros apenas se o lead solicitar.
+
+7.  **Priorize a Conversa**: A informação confirmada pelo usuário durante o diálogo (como a cidade) é a *fonte da verdade*. Use os dados da ferramenta `consultar_dados_lead` para iniciar ou enriquecer a conversa, mas se o usuário confirmar algo diferente, a confirmação dele prevalece.
 """
 
 prompt = ChatPromptTemplate.from_messages([
@@ -97,26 +106,33 @@ agent_with_chat_history = RunnableWithMessageHistory(
 
 def handle_agent_invocation(phone_number: str, user_message: str, image_url: str | None = None):
     """
-    Recebe a mensagem do usuário, prepara a entrada e invoca o agente com memória.
+    Recebe a mensagem limpa do usuário, prepara a entrada e invoca o agente com memória.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Lógica de entrada simplificada
     if image_url:
-        input_data = f"Número de telefone do usuário: {phone_number}. O usuário enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
+        input_data = f"O usuário {phone_number} enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
     else:
-        input_data = f"Número de telefone do usuário: {phone_number}. Mensagem: {user_message}"
+        # A mensagem já é o conteúdo real, seja texto ou o título de um botão.
+        input_data = user_message
 
-    # A configuração da sessão é passada via 'configurable'.
     config = {"configurable": {"session_id": phone_number}}
 
-    response = agent_with_chat_history.invoke(
-        {"input": input_data},
-        config=config
-    )
-    
-    output = response.get("output")
-    if output is None:
-        output = "Não consegui processar sua solicitação."
-    
-    return {"response": output}
+    try:
+        logger.info(f"🤖 Invocando agente para {phone_number} com input: '{input_data[:100]}...'")
+        response = agent_with_chat_history.invoke(
+            {"input": input_data},
+            config=config
+        )
+        
+        output = response.get("output", "Não consegui processar sua solicitação.")
+        return {"response": output}
+    except Exception as e:
+        logger.error(f"❌ Erro ao invocar agente para {phone_number}: {str(e)}")
+        return {"response": f"Desculpe, tive um problema técnico. Por favor, tente novamente. Erro: {str(e)}"}
+
 
 # --- PASSO 4: Ponto de Entrada para o Script (para testes) ---
 

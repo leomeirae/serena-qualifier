@@ -3,7 +3,9 @@
 Upload Script Files to Kestra Namespace Files Storage
 
 This script uploads the required script files to the Kestra namespace files storage
-so they can be accessed by the 2_ai_conversation_flow workflow using the read() function.
+so they can be accessed by the AI conversation workflows using the read() function.
+
+Atualizado: Inclui o novo script extract_message_content.py para processamento de mensagens de botão.
 """
 
 import os
@@ -60,16 +62,23 @@ def main():
     kestra_url = "https://kestra.darwinai.com.br/api/v1"
     
     # Files to upload (local path -> namespace path)
-    # Apenas arquivos necessários para o workflow 2_ai_conversation_flow
+    # Arquivos necessários para os workflows de conversação IA
     files_to_upload = {
-        # Scripts do Agente Sílvia
+        # Scripts Essenciais para Comunicação
+        'scripts/send_whatsapp_template.py': 'scripts/send_whatsapp_template.py',
+
+        # Scripts do Agente Sílvia (USADOS pelo workflow 3_ai_conversation_optimized.yml)
         'scripts/agent_orchestrator.py': 'scripts/agent_orchestrator.py',
         'scripts/agent_tools/knowledge_base_tool.py': 'scripts/agent_tools/knowledge_base_tool.py',
         'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
         'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
         'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
         'scripts/serena_api.py': 'scripts/serena_api.py',
-        'scripts/__init__.py': 'scripts/__init__.py'
+        'scripts/__init__.py': 'scripts/__init__.py',
+        'scripts/agent_tools/__init__.py': 'scripts/agent_tools/__init__.py',
+        'scripts/lead_data_utils.py': 'scripts/lead_data_utils.py',
+
+        # Scripts de processamento (USADOS pelos workflows)
     }
     
     success_count = 0

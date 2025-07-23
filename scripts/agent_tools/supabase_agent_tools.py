@@ -4,6 +4,7 @@ import json
 import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
+from scripts.lead_data_utils import get_lead_additional_data, update_lead_additional_data
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -110,14 +111,6 @@ def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
     'energy_bill_data' com 'valor_total' e 'client_type'.
     Use esta ferramenta após confirmar os dados com o usuário.
     """
-    conn_string = os.getenv("DB_CONNECTION_STRING")
-    
-    if not conn_string:
-        # Tenta com o prefixo SECRET_ se a variável normal não existir
-        conn_string = os.getenv("SECRET_DB_CONNECTION_STRING")
-        if not conn_string:
-            return "Erro: A variável de ambiente DB_CONNECTION_STRING ou SECRET_DB_CONNECTION_STRING não foi encontrada."
-
     try:
         dados_dict = json.loads(dados_lead)
         energy_data = dados_dict.get('energy_bill_data', {})
@@ -130,15 +123,16 @@ def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
         city = dados_dict.get('city')
         state = dados_dict.get('state')
 
+        # Atualiza os campos principais do lead
+        conn_string = os.getenv("DB_CONNECTION_STRING") or os.getenv("SECRET_DB_CONNECTION_STRING")
+        if not conn_string:
+            return "Erro: A variável de ambiente DB_CONNECTION_STRING ou SECRET_DB_CONNECTION_STRING não foi encontrada."
         with psycopg2.connect(conn_string) as conn:
             with conn.cursor() as cur:
-                additional_data_payload = {"email": email, "source": "silvia_agent"}
-                additional_data_json = json.dumps(additional_data_payload)
-
                 cur.execute(
                     """
-                    INSERT INTO leads (phone_number, name, invoice_amount, client_type, state, city, additional_data, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO leads (phone_number, name, invoice_amount, client_type, state, city, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (phone_number) 
                     DO UPDATE SET
                         name = EXCLUDED.name,
@@ -146,13 +140,17 @@ def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
                         client_type = EXCLUDED.client_type,
                         state = EXCLUDED.state,
                         city = EXCLUDED.city,
-                        additional_data = leads.additional_data || %s::jsonb,
                         updated_at = CURRENT_TIMESTAMP;
                     """,
-                    (phone, name, account_value, client_type, state, city, additional_data_json, additional_data_json)
+                    (phone, name, account_value, client_type, state, city)
                 )
-        return "Dados do lead salvos com sucesso no sistema."
-
+        # Atualiza o campo additional_data usando a função utilitária
+        additional_data_payload = {"email": email, "source": "silvia_agent"}
+        update_success = update_lead_additional_data(phone, additional_data_payload)
+        if update_success:
+            return "Dados do lead salvos com sucesso no sistema."
+        else:
+            return "Erro ao atualizar o campo additional_data do lead."
     except json.JSONDecodeError:
         return "Erro: A entrada para a ferramenta não é um JSON válido."
     except psycopg2.Error as e:

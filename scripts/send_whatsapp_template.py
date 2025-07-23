@@ -64,8 +64,9 @@ def normalize_phone_number(phone: str) -> str:
 def send_activation_template(
     phone_number: str,
     lead_name: str,
+    lead_city: str,  # NEW PARAMETER
     phone_number_id: str,
-    template_name: str = "prosseguir_com_solicitacao"
+    template_name: str = "welcome_profile_site"  # Updated default template
 ) -> Dict[str, Any]:
     """
     Envia template de ativação do WhatsApp para o lead.
@@ -102,7 +103,7 @@ def send_activation_template(
             "Content-Type": "application/json"
         }
         
-        # Payload do template
+        # Payload do template - UPDATED FOR TWO PARAMETERS
         payload = {
             "messaging_product": "whatsapp",
             "to": normalized_phone,
@@ -118,7 +119,11 @@ def send_activation_template(
                         "parameters": [
                             {
                                 "type": "text",
-                                "text": lead_name
+                                "text": lead_name  # {{1}} parameter
+                            },
+                            {
+                                "type": "text", 
+                                "text": lead_city  # {{2}} parameter
                             }
                         ]
                     }
@@ -201,8 +206,9 @@ def main():
     parser = argparse.ArgumentParser(description='Enviar template de ativação WhatsApp')
     parser.add_argument('--phone', required=True, help='Número de telefone do lead')
     parser.add_argument('--name', required=True, help='Nome do lead')
+    parser.add_argument('--city', required=True, help='Cidade do lead')  # NEW PARAMETER
     parser.add_argument('--phone-id', help='ID do número WhatsApp Business')
-    parser.add_argument('--template', default='prosseguir_com_solicitacao', help='Nome do template')
+    parser.add_argument('--template', default='welcome_profile_site', help='Nome do template')
     
     args = parser.parse_args()
     
@@ -217,6 +223,7 @@ def main():
     result = send_activation_template(
         phone_number=args.phone,
         lead_name=args.name,
+        lead_city=args.city,  # NEW PARAMETER
         phone_number_id=phone_number_id,
         template_name=args.template
     )
