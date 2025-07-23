@@ -115,18 +115,28 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
 
 def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppMessage]:
     """
-    Extrai dados da mensagem do payload do WhatsApp de forma robusta.
+    Extrai dados da mensagem do payload do WhatsApp de forma robusta,
+    ignorando webhooks de status.
     """
     try:
         entry = webhook_data.get('entry', [])
-        if not entry or not entry[0].get('changes'):
+        if not entry:
             return None
-            
-        value = entry[0]['changes'][0].get('value', {})
-        messages = value.get('messages', [])
+
+        changes = entry[0].get('changes', [])
+        if not changes:
+            return None
+
+        value = changes[0].get('value', {})
         
+        # --- Ponto Chave: Ignorar webhooks de status ---
+        if 'statuses' in value:
+            logger.info("✅ Webhook de status de entrega recebido e ignorado.")
+            return None
+        
+        messages = value.get('messages', [])
         if not messages:
-            logger.info("📭 Webhook recebido sem mensagens (provavelmente um status de entrega)")
+            logger.info("ℹ️ Webhook recebido sem um objeto de mensagem relevante.")
             return None
             
         message = messages[0]
@@ -141,20 +151,17 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
             message_text = message.get('text', {}).get('body', '')
         elif message_type == 'image':
             media_id = message.get('image', {}).get('id', '')
-            message_text = message.get('image', {}).get('caption', 'Imagem enviada')
+            message_text = message.get('image', {}).get('caption', 'Imagem recebida')
         elif message_type == 'interactive':
             reply = message.get('interactive', {}).get('button_reply', {})
             message_text = reply.get('title', 'Botão Interativo Clicado')
-            logger.info(f"🔘 Botão Interativo pressionado, título extraído: '{message_text}'")
         elif message_type == 'button':
             reply = message.get('button', {})
-            # Corrigido: prioriza 'text', depois 'payload', senão valor padrão
-            message_text = reply.get('text', reply.get('payload', 'Botão de Template Clicado'))
-            logger.info(f"🔘 Botão de Template pressionado, texto extraído: '{message_text}'")
+            message_text = reply.get('text', 'Botão de Template Clicado')
         else:
-            message_text = f"Mensagem do tipo '{message_type}' não suportado recebida"
+            message_text = f"Tipo de mensagem '{message_type}' não suportado."
 
-        logger.info(f"📱 Mensagem final extraída para {phone_number}: '{message_text[:100]}'")
+        logger.info(f"📱 Mensagem do usuário extraída: '{message_text[:100]}'")
         
         return WhatsAppMessage(
             phone=phone_number,
@@ -163,8 +170,11 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
             timestamp=timestamp
         )
         
+    except (IndexError, KeyError) as e:
+        logger.error(f"❌ Erro de estrutura no payload do webhook: {str(e)}")
+        return None
     except Exception as e:
-        logger.error(f"❌ Erro crítico ao extrair mensagem do webhook: {str(e)}")
+        logger.error(f"💥 Erro inesperado ao extrair mensagem: {str(e)}")
         return None
 
 
