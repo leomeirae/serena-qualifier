@@ -148,8 +148,13 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
             logger.info(f"🔘 Botão Interativo pressionado, título extraído: '{message_text}'")
         elif message_type == 'button':
             reply = message.get('button', {})
-            message_text = reply.get('text', 'Botão de Template Clicado')
+            message_text = (
+                reply.get('payload') or
+                reply.get('text') or
+                "Mensagem de botão vazia"
+            )
             logger.info(f"🔘 Botão de Template pressionado, texto extraído: '{message_text}'")
+            logger.info(f"[DEBUG] Mensagem extraída do WhatsApp: {message_text}")
         else:
             message_text = f"Mensagem do tipo '{message_type}' não suportado recebida"
 
