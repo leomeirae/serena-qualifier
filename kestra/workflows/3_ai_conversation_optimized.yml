@@ -36,7 +36,48 @@ tasks:
     key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
     allowFailure: true
     
-  # FASE 3: PROCESSAMENTO IA
+  # FASE 3: BUSCAR CONTEXTO DO LEAD
+  - id: get_lead_context
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Busca dados contextuais do lead no banco de dados"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+      networkMode: coolify
+    env:
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      PHONE_NUMBER: "{{ trigger.body.phone }}"
+      PYTHONPATH: "/app"
+    inputFiles:
+      scripts/lead_data_utils.py: "{{ read('scripts/lead_data_utils.py') }}"
+    script: |
+      import os
+      import logging
+      from kestra import Kestra
+      from scripts.lead_data_utils import get_lead_additional_data
+
+      logging.basicConfig(level=logging.INFO)
+      logger = logging.getLogger(__name__)
+
+      phone_number = os.environ.get('PHONE_NUMBER')
+      lead_data = get_lead_additional_data(phone_number)
+      
+      if lead_data:
+          lead_city = lead_data.get('city', '')
+          lead_name = lead_data.get('name', '')
+          logger.info(f"Contexto do lead encontrado para {phone_number}: Cidade={lead_city}, Nome={lead_name}")
+          Kestra.outputs({
+              'lead_city': lead_city,
+              'lead_name': lead_name
+          })
+      else:
+          logger.warning(f"Nenhum dado adicional encontrado para {phone_number}.")
+          Kestra.outputs({
+              'lead_city': '',
+              'lead_name': ''
+          })
+
+  # FASE 4: PROCESSAMENTO IA
   - id: ai_agent_processing
     type: io.kestra.plugin.scripts.python.Script
     description: "Processamento principal do agente IA com entrada direta do webhook"
@@ -51,6 +92,8 @@ tasks:
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
+      LEAD_CITY: "{{ outputs.get_lead_context.vars.lead_city }}"
+      LEAD_NAME: "{{ outputs.get_lead_context.vars.lead_name }}"
       REDIS_URL: "{{ vars.redis_url }}"
       PYTHONPATH: "/app"
     inputFiles:
@@ -80,8 +123,10 @@ tasks:
           from scripts.agent_orchestrator import handle_agent_invocation
           phone_number = os.environ.get('PHONE_NUMBER')
           user_message = os.environ.get('USER_MESSAGE')
-          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}...")
-          result = handle_agent_invocation(phone_number, user_message)
+          lead_city = os.environ.get('LEAD_CITY')
+          lead_name = os.environ.get('LEAD_NAME')
+          logger.info(f"[AI] Processando mensagem para {phone_number} ({lead_name} de {lead_city}): {user_message[:50]}...")
+          result = handle_agent_invocation(phone_number, user_message, lead_city, lead_name)
           response = result.get('response', 'Desculpe, ocorreu um erro interno.')
           logger.info(f"[AI] Resposta gerada: {len(response)} chars")
           Kestra.outputs({'response': response})

@@ -195,7 +195,7 @@ services:
       sh -c "
         apt-get update && apt-get install -y curl &&
         pip install --no-cache-dir -r requirements.txt &&
-        uvicorn webhook_service:app --host 0.0.0.0 --port 8001
+        uvicorn webhook_service:app --host 0.0.0.0 --port 8001 --reload
       "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/"]
@@ -238,7 +238,7 @@ services:
       sh -c "
         apt-get update && apt-get install -y curl &&
         pip install --no-cache-dir -r requirements.txt &&
-        uvicorn api_principal:app --host 0.0.0.0 --port 3001
+        uvicorn api_principal:app --host 0.0.0.0 --port 3001 --reload
       "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/"]

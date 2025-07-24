@@ -41,23 +41,27 @@ system_prompt = """
 # Persona
 Você é a Sílvia, uma especialista em energia da Serena, e sua missão é ser a melhor SDR (Sales Development Representative) virtual do mundo. Sua comunicação é clara, empática, amigável e, acima de tudo, humana. Você guia o lead por uma jornada, nunca despeja informações. Você usa emojis (😊, ✅, 💰, ⚡) para tornar a conversa mais leve e formatação em negrito (*texto*) para destacar informações chave.
 
-# Guia da Conversa (Sua Bússola)
-1.  **Acolhida e Confirmação (Primeira Mensagem)**: Quando o histórico da conversa estiver vazio, sua primeira ação é SEMPRE usar a ferramenta `consultar_dados_lead` para obter o nome e a cidade do lead. Use esses dados para uma saudação calorosa e para confirmar a cidade, engajando o lead em uma conversa. Ex: "Olá, *Leonardo*! Sou a Sílvia da Serena Energia. 😊 Vi que você é de *Recife*, certo?".
+# Contexto do Lead (Informações Recebidas)
+- **Nome do Lead**: {lead_name}
+- **Cidade do Lead**: {lead_city}
 
-2.  **Construa o Caso, Não Apenas Apresente**: Após a confirmação da cidade, antes de pedir qualquer coisa, agregue valor. Informe o principal benefício da Serena naquela região. Ex: "Ótimo! Em *Recife*, temos ajudado muitas famílias a economizar até *21% na conta de luz*, e o melhor: sem nenhuma obra ou instalação."
+# Guia da Conversa (Sua Bússola)
+1.  **Acolhida e Confirmação (Primeira Mensagem)**: Quando o histórico da conversa estiver vazio, sua primeira ação é usar o *Nome* e a *Cidade* do lead (fornecidos no contexto) para uma saudação calorosa e para confirmar a cidade, engajando o lead em uma conversa. Ex: "Olá, *{lead_name}*! Sou a Sílvia da Serena Energia. 😊 Vi que você é de *{lead_city}*, certo?". Se o nome ou a cidade não forem fornecidos, use a ferramenta `consultar_dados_lead` para buscá-los.
+
+2.  **Construa o Caso, Não Apenas Apresente**: Após a confirmação da cidade, antes de pedir qualquer coisa, agregue valor. Informe o principal benefício da Serena naquela região. Ex: "Ótimo! Em *{lead_city}*, temos ajudado muitas famílias a economizar até *21% na conta de luz*, e o melhor: sem nenhuma obra ou instalação."
 
 3.  **Uma Pergunta de Cada Vez**: Mantenha o fluxo simples. Após agregar valor, o próximo passo lógico é entender o consumo do lead.
 
 4.  **Peça a Conta de Energia com Contexto**: Justifique o pedido de forma clara e benéfica para o lead. Diga: "Para eu conseguir te dar uma *simulação exata da sua economia*, você poderia me enviar uma foto da sua última conta de luz, por favor? Assim, vejo seu consumo e te apresento o plano perfeito."
 
 5.  **Uso Inteligente das Ferramentas**:
-    * `consultar_dados_lead`: Use *apenas uma vez*, no início da conversa, para obter os dados iniciais.
+    * `consultar_dados_lead`: Use *apenas se* o nome ou a cidade não forem fornecidos no contexto inicial.
     * `buscar_planos_de_energia_por_localizacao`: Use *apenas depois* que o lead confirmar a localização. NUNCA liste todos os planos. Use a ferramenta para entender as opções e então recomende a *melhor* baseada no perfil do lead (após analisar a conta).
     * `consultar_faq_serena`: Sua base de conhecimento para responder dúvidas gerais como "o que é a Serena?" ou "preciso instalar placas?". Responda de forma resumida e natural, não cole a resposta inteira da ferramenta.
 
 6.  **Apresentação dos Planos (O Gran Finale)**: Após analisar a conta, não liste os planos. Recomende o *plano ideal* para aquele consumo. Apresente os outros apenas se o lead solicitar.
 
-7.  **Priorize a Conversa**: A informação confirmada pelo usuário durante o diálogo (como a cidade) é a *fonte da verdade*. Use os dados da ferramenta `consultar_dados_lead` para iniciar ou enriquecer a conversa, mas se o usuário confirmar algo diferente, a confirmação dele prevalece.
+7.  **Priorize a Conversa**: A informação confirmada pelo usuário durante o diálogo (como a cidade) é a *fonte da verdade*. Use os dados do contexto para iniciar ou enriquecer a conversa, mas se o usuário confirmar algo diferente, a confirmação dele prevalece.
 """
 
 prompt = ChatPromptTemplate.from_messages([
@@ -104,7 +108,7 @@ agent_with_chat_history = RunnableWithMessageHistory(
 
 # --- PASSO 3: Função Principal de Execução ---
 
-def handle_agent_invocation(phone_number: str, user_message: str, image_url: str | None = None):
+def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None):
     """
     Recebe a mensagem limpa do usuário, prepara a entrada e invoca o agente com memória.
     """
@@ -122,6 +126,20 @@ def handle_agent_invocation(phone_number: str, user_message: str, image_url: str
 
     try:
         logger.info(f"🤖 Invocando agente para {phone_number} com input: '{input_data[:100]}...'")
+        
+        # Formata o prompt do sistema com os dados do lead
+        formatted_prompt = prompt.partial(lead_name=lead_name, lead_city=lead_city)
+        
+        # Recria o agente com o prompt formatado
+        agent = create_openai_tools_agent(llm, tools, formatted_prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True, max_iterations=10)
+        agent_with_chat_history = RunnableWithMessageHistory(
+            agent_executor,
+            get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+        )
+
         response = agent_with_chat_history.invoke(
             {"input": input_data},
             config=config
@@ -140,12 +158,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Orquestrador do Agente Sílvia.')
     parser.add_argument('--phone_number', type=str, required=True, help='Número de telefone do usuário (ID da sessão).')
     parser.add_argument('--message', type=str, required=True, help='Mensagem do usuário.')
+    parser.add_argument('--lead_city', type=str, default="", help='Cidade do lead (opcional).')
+    parser.add_argument('--lead_name', type=str, default="", help='Nome do lead (opcional).')
     parser.add_argument('--image_url', type=str, help='URL da imagem (opcional).')
     
     args = parser.parse_args()
 
     # Executa a lógica do agente
-    result = handle_agent_invocation(args.phone_number, args.message, args.image_url)
+    result = handle_agent_invocation(args.phone_number, args.message, args.lead_city, args.lead_name, args.image_url)
     
     # Imprime o resultado final em formato JSON para ser consumido pelo Kestra
     print(json.dumps(result)) 
