@@ -156,6 +156,7 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -
             media_id = message.get('document', {}).get('id', '')
             message_text = "Documento recebido"
         elif message_type == 'interactive':
+            # WhatsApp pode mudar a estrutura de botões para 'interactive' em versões futuras. Revisar este bloco se necessário.
             interactive = message.get('interactive', {})
             if 'button_reply' in interactive:
                 message_text = interactive['button_reply'].get('title', 'Botão Interativo')
@@ -165,6 +166,7 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -
                 message_text = 'Interação desconhecida'
             logger.info(f"[TRACE {trace_id}] 🔘 Interativo pressionado, texto extraído: '{message_text}'", extra={"trace_id": trace_id})
         elif message_type == 'button':
+            # WhatsApp pode migrar botões de template para 'interactive' no futuro. Fique atento a mudanças de estrutura.
             reply = message.get('button', {})
             payload = reply.get('payload')
             text = reply.get('text')
@@ -186,7 +188,8 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -
             phone=phone_number,
             message=message_text,
             media_id=media_id,
-            timestamp=timestamp
+            timestamp=timestamp,
+            type=message_type  # Blindagem!
         )
         
     except Exception as e:
@@ -197,25 +200,30 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -
 async def trigger_kestra_workflow(message: WhatsAppMessage) -> Dict[str, Any]:
     """
     Aciona o workflow converse_production_lead no Kestra.
-    
-    Args:
-        message (WhatsAppMessage): Dados da mensagem
-        
-    Returns:
-        Dict: Resultado do acionamento
     """
     try:
         # Payload para o Kestra
-        payload = {
-            "phone": message.phone,
-            "message": message.message,
-            "timestamp": message.timestamp,
-            "type": message.type or "text"
-        }
-        
+        # Ajuste: para tipo 'button', envie o texto real do botão
+        if message.type == "button":
+            # O texto do botão já foi extraído no parser, mas garantimos aqui
+            user_message = message.message
+            if not user_message:
+                user_message = "[BOTÃO SEM TEXTO]"
+            payload = {
+                "phone": message.phone,
+                "message": user_message,
+                "timestamp": message.timestamp,
+                "type": "button"
+            }
+        else:
+            payload = {
+                "phone": message.phone,
+                "message": message.message,
+                "timestamp": message.timestamp,
+                "type": message.type or "text"
+            }
         if message.media_id:
             payload["media_id"] = message.media_id
-        
         logger.info(f"🚀 Acionando Kestra workflow: {KESTRA_WEBHOOK_URL}")
         logger.info(f"📦 Payload: {json.dumps(payload, indent=2)}")
         
@@ -384,7 +392,6 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         # Parsear JSON
         webhook_data = json.loads(payload.decode())
         logger.info(f"[TRACE {trace_id}] 🔍 PAYLOAD BRUTO DO WHATSAPP: {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
-        logger.info(f"[TRACE {trace_id}] 📨 Webhook recebido: {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
 
         # Extrai o tipo de mensagem principal
         entry = webhook_data.get('entry', [])
