@@ -81,6 +81,7 @@ class WhatsAppMessage(BaseModel):
     message: str
     media_id: Optional[str] = None
     timestamp: Optional[str] = None
+    type: Optional[str] = "text"  # Adicionado campo type
 
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
@@ -207,7 +208,8 @@ async def trigger_kestra_workflow(message: WhatsAppMessage) -> Dict[str, Any]:
         payload = {
             "phone": message.phone,
             "message": message.message,
-            "timestamp": message.timestamp
+            "timestamp": message.timestamp,
+            "type": message.type or "text"
         }
         
         if message.media_id:
@@ -383,7 +385,6 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"[TRACE {trace_id}] 🔍 PAYLOAD BRUTO DO WHATSAPP: {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
         logger.info(f"[TRACE {trace_id}] 📨 Webhook recebido: {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
         
-        # --- FILTRO: Só processa mensagens de texto ---
         entry = webhook_data.get('entry', [])
         if not entry or not entry[0].get('changes'):
             logger.warning(f"[TRACE {trace_id}] entry vazio ou sem changes", extra={"trace_id": trace_id})
@@ -395,26 +396,57 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "ignored", "reason": "sem mensagens", "trace_id": trace_id}
         message = messages[0]
         message_type = message.get('type', '')
-        if message_type != 'text':
-            logger.info(f"[TRACE {trace_id}] Ignorando mensagem do tipo '{message_type}'", extra={"trace_id": trace_id})
-            return {"status": "ignored", "reason": f"tipo '{message_type}'", "trace_id": trace_id}
-        # --- FIM DO FILTRO ---
-        # Extrair mensagem (agora garantido ser texto)
-        message_obj = extract_whatsapp_message(webhook_data, trace_id=trace_id)
-        if message_obj:
-            # Processar em background para resposta rápida
-            background_tasks.add_task(trigger_kestra_workflow, message_obj)
-            logger.info(f"[TRACE {trace_id}] ✅ Mensagem processada: {message_obj.phone} -> {message_obj.message[:50]}...", extra={"trace_id": trace_id})
+        # --- Bloco para texto ---
+        if message_type == 'text':
+            message_obj = extract_whatsapp_message(webhook_data, trace_id=trace_id)
+            if message_obj:
+                message_obj.type = message_type  # Garante o type correto
+                payload_kestra = {
+                    "phone": message_obj.phone,
+                    "message": message_obj.message,
+                    "timestamp": message_obj.timestamp,
+                    "type": message_obj.type
+                }
+                background_tasks.add_task(trigger_kestra_workflow, message_obj)
+                logger.info(f"[TRACE {trace_id}] ✅ Mensagem de texto processada: {message_obj.phone} -> {message_obj.message[:50]}...", extra={"trace_id": trace_id})
+                return {
+                    "status": "received",
+                    "phone": message_obj.phone,
+                    "message_preview": message_obj.message[:100],
+                    "timestamp": datetime.now().isoformat(),
+                    "trace_id": trace_id
+                }
+            else:
+                logger.info(f"[TRACE {trace_id}] 📭 Webhook sem mensagem relevante", extra={"trace_id": trace_id})
+                return {"status": "acknowledged", "trace_id": trace_id}
+        # --- Bloco para botão ---
+        elif message_type == 'button':
+            reply = message.get('button', {})
+            button_payload = reply.get('payload') or reply.get('text') or "Mensagem de botão vazia"
+            # Padronização opcional do payload
+            button_payload_std = button_payload.strip().lower()
+            if button_payload_std in ["sim", "confirmar", "ok"]:
+                button_payload_std = "confirmar"
+            elif button_payload_std in ["trocar", "alterar"]:
+                button_payload_std = "trocar"
+            elif button_payload_std in ["avançar", "proximo", "próximo"]:
+                button_payload_std = "avancar"
+            # Log do conteúdo do botão
+            logger.info(f"[TRACE {trace_id}] Botão pressionado: raw='{button_payload}', std='{button_payload_std}'", extra={"trace_id": trace_id})
+            phone_number = message.get('from', '')
+            timestamp = message.get('timestamp', str(int(datetime.now().isoformat())))
+            msg_obj = WhatsAppMessage(phone=phone_number, message=button_payload_std, timestamp=timestamp, type="button")
+            background_tasks.add_task(trigger_kestra_workflow, msg_obj)
             return {
-                "status": "received",
-                "phone": message_obj.phone,
-                "message_preview": message_obj.message[:100],
+                "status": "received_button",
+                "phone": phone_number,
+                "message_preview": button_payload_std,
                 "timestamp": datetime.now().isoformat(),
                 "trace_id": trace_id
             }
         else:
-            logger.info(f"[TRACE {trace_id}] 📭 Webhook sem mensagem relevante", extra={"trace_id": trace_id})
-            return {"status": "acknowledged", "trace_id": trace_id}
+            logger.info(f"[TRACE {trace_id}] Ignorando mensagem do tipo '{message_type}'", extra={"trace_id": trace_id})
+            return {"status": "ignored", "reason": f"tipo '{message_type}'", "trace_id": trace_id}
     except json.JSONDecodeError:
         logger.error(f"[TRACE {trace_id}] ❌ Payload JSON inválido", extra={"trace_id": trace_id})
         raise HTTPException(status_code=400, detail="JSON inválido")
