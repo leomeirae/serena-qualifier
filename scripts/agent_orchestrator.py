@@ -120,8 +120,8 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
     if image_url:
         input_data = f"O usuário {phone_number} enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
     elif message_type == "button":
-        # Marcar explicitamente que veio de botão
-        input_data = f"[BOTÃO] {user_message}"
+        # Inclua o telefone no contexto para o agente
+        input_data = f"[BOTÃO] {user_message} (Usuário: {phone_number})"
     else:
         input_data = user_message
 
