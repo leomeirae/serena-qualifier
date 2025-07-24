@@ -1,46 +1,103 @@
+````markdown
+# Roteiro para Correção do Fluxo WhatsApp + Kestra + Agente IA
 
+## Objetivo
+Corrigir o fluxo para garantir que apenas **mensagens de texto reais dos usuários** sejam processadas pelo agente de IA, evitando que eventos de status (como "read", "delivered" ou "button") disparem o pipeline e causem respostas erradas.
 
-### A Solução: Ativar o "Hot Reload" do Uvicorn
+---
 
-Para resolver isso, precisamos instruir o Uvicorn a monitorar os arquivos por mudanças e a reiniciar automaticamente quando uma alteração for detectada. Isso é feito adicionando o parâmetro `--reload` ao comando de inicialização.
+## 1. Diagnóstico Resumido
 
-#### **Plano de Ação Exato**
+- O webhook está recebendo **vários tipos de eventos do WhatsApp**, não apenas mensagens de texto.
+- O agente de IA está recebendo eventos como `"Mensagem do tipo button recebida"` em vez do texto real enviado pelo usuário.
+- O pipeline processa eventos irrelevantes e responde de forma inadequada.
 
-realize você mesmo a seguinte alteração:
+---
 
-1.  **Modifique o Arquivo `docker-compose.yml`:**
+## 2. **Tarefas para o Agente de Codificação**
 
-      * **Localize o serviço:** Encontre a seção `webhook-service`.
-      * **Encontre a linha `command`:** Dentro de `webhook-service`, localize a chave `command`.
-      * **Altere o comando:** Adicione o parâmetro `--reload` ao final do comando `uvicorn`.
+### 2.1. **Analisar e Identificar a Origem do Problema**
 
-    **Comando Atual:**
+- [ ] Localizar o ponto no código (ex: `webhook_service.py`) onde os webhooks recebidos do WhatsApp são tratados.
+- [ ] Verificar como os eventos são classificados e encaminhados ao Kestra.
 
-    ```yaml
-    command: "sh -c \"\n  apt-get update && apt-get install -y curl &&\n  pip install --no-cache-dir -r requirements.txt &&\n  uvicorn webhook_service:app --host 0.0.0.0 --port 8001\n\"\n"
-    ```
+---
 
-    **Comando Corrigido (adicione `--reload`):**
+### 2.2. **Filtrar Apenas Mensagens de Texto**
 
-    ```yaml
-    command: "sh -c \"\n  apt-get update && apt-get install -y curl &&\n  pip install --no-cache-dir -r requirements.txt &&\n  uvicorn webhook_service:app --host 0.0.0.0 --port 8001 --reload\n\"\n"
-    ```
+- [ ] Implementar um filtro para que apenas eventos contendo mensagens de texto (`type: "text"`) sejam considerados válidos para processamento pelo Kestra.
+- [ ] Ignorar eventos de tipo "status", "button", "image", etc.
 
-2.  **Recrie o Contêiner para Aplicar a Mudança:**
+#### Exemplo (pseudo-código):
 
-      * Depois de salvar o arquivo `docker-compose.yml` com a alteração, você precisa forçar o Docker a recriar o contêiner do `webhook-service` para que ele use o novo comando.
-      * Abra um terminal no diretório onde está seu arquivo `docker-compose.yml` e execute o seguinte comando:
+```python
+if "messages" in payload and payload["messages"]:
+    for msg in payload["messages"]:
+        if msg.get("type") == "text" and "body" in msg["text"]:
+            # Encaminhar para Kestra
+        else:
+            # Ignorar ou apenas logar o evento
+else:
+    # Ignorar eventos sem mensagem relevante
+````
 
-    <!-- end list -->
+---
 
-    ```bash
-    docker-compose up -d --no-deps --build webhook-service
-    ```
+### 2.3. **Ajustar o Payload Enviado ao Kestra**
 
-      * **O que este comando faz:**
-          * `up -d`: Garante que os contêineres subam em background.
-          * `--no-deps`: Impede que o Docker reinicie outros serviços desnecessariamente (como o banco de dados).
-          * `--build`: Força a reconstrução da imagem do serviço, se aplicável.
-          * `webhook-service`: Especifica que a ação deve ser aplicada apenas a este serviço.
+* [ ] Certificar que o JSON enviado ao trigger do Kestra contenha:
 
-Após executar esses dois passos, o Uvicorn irá iniciar com o modo de recarregamento ativado. Agora, qualquer alteração que você fizer no `webhook_service.py` será refletida em tempo real, e, mais importante, ele finalmente carregará a versão correta do código, permitindo que a Sílvia processe as mensagens dos botões como planejado.
+  * O texto da mensagem real do usuário
+  * O número do telefone
+  * Qualquer dado adicional relevante
+
+---
+
+### 2.4. **Aprimorar Logs e Observabilidade**
+
+* [ ] Adicionar logs detalhados mostrando:
+
+  * Todos os eventos recebidos
+  * Quais eventos foram processados
+  * Quais eventos foram ignorados
+
+---
+
+### 2.5. **Testar Comportamento**
+
+* [ ] Realizar testes enviando:
+
+  * Mensagem de texto (deve ser processada normalmente)
+  * Evento de botão/status (deve ser ignorado)
+* [ ] Validar nos logs e no workflow que só mensagens de texto chegam ao Kestra.
+
+---
+
+### 2.6. **Documentar Solução**
+
+* [ ] Comentar no código e/ou criar um README curto explicando a lógica do filtro e o motivo da implementação.
+
+---
+
+## 3. **Checklist para o Pull Request**
+
+* [ ] O agente de IA só é acionado para mensagens de texto reais.
+* [ ] Logs claros para auditoria e debug.
+* [ ] Documentação breve no código.
+
+---
+
+## 4. **Dicas de Código e Fontes**
+
+* [Meta WhatsApp Webhooks Payloads](https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples/)
+* [Exemplo oficial de webhook de texto](https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples/#when-a-user-sends-a-text-message)
+
+---
+
+## 5. **Resumo**
+
+> O foco é garantir que **apenas mensagens relevantes do usuário sejam processadas pelo agente de IA**, eliminando o ruído dos eventos do WhatsApp e tornando o atendimento mais inteligente e eficiente.
+
+```
+Se quiser, posso gerar o template de código Python adaptado para sua stack atual!
+```

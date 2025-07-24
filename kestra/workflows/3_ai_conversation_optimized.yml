@@ -51,6 +51,7 @@ tasks:
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
+      MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
       REDIS_URL: "{{ vars.redis_url }}"
       PYTHONPATH: "/app"
     inputFiles:
