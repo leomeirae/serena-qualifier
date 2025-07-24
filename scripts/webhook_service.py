@@ -33,17 +33,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pythonjsonlogger import jsonlogger
+import uuid
 
 # Load environment variables
 load_dotenv()
 
 # Configure structured (JSON) logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 logHandler = logging.StreamHandler()
 # Example of a custom format
 formatter = jsonlogger.JsonFormatter(
-    '%(asctime)s %(name)s %(levelname)s %(message)s'
+    '%(asctime)s %(name)s %(levelname)s %(message)s %(trace_id)s'
 )
 logHandler.setFormatter(formatter)
 # Avoid adding duplicate handlers
@@ -113,20 +115,21 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
         return False
 
 
-def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppMessage]:
+def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -> Optional[WhatsAppMessage]:
     """
     Extrai dados da mensagem do payload do WhatsApp de forma robusta.
     """
     try:
         entry = webhook_data.get('entry', [])
         if not entry or not entry[0].get('changes'):
+            logger.warning(f"[TRACE {trace_id}] entry vazio ou sem changes", extra={"trace_id": trace_id})
             return None
             
         value = entry[0]['changes'][0].get('value', {})
         messages = value.get('messages', [])
         
         if not messages:
-            logger.info("📡 Webhook recebido sem mensagens (provavelmente um status de entrega)")
+            logger.info(f"[TRACE {trace_id}] 📡 Webhook recebido sem mensagens (provavelmente um status de entrega)", extra={"trace_id": trace_id})
             return None
             
         message = messages[0]
@@ -142,6 +145,15 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
         elif message_type == 'image':
             media_id = message.get('image', {}).get('id', '')
             message_text = message.get('image', {}).get('caption', 'Imagem enviada')
+        elif message_type == 'audio':
+            media_id = message.get('audio', {}).get('id', '')
+            message_text = "Áudio recebido"
+        elif message_type == 'video':
+            media_id = message.get('video', {}).get('id', '')
+            message_text = "Vídeo recebido"
+        elif message_type == 'document':
+            media_id = message.get('document', {}).get('id', '')
+            message_text = "Documento recebido"
         elif message_type == 'interactive':
             interactive = message.get('interactive', {})
             if 'button_reply' in interactive:
@@ -150,7 +162,7 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
                 message_text = interactive['list_reply'].get('title', 'Item de Lista')
             else:
                 message_text = 'Interação desconhecida'
-            logger.info(f"🔘 Interativo pressionado, texto extraído: '{message_text}'")
+            logger.info(f"[TRACE {trace_id}] 🔘 Interativo pressionado, texto extraído: '{message_text}'", extra={"trace_id": trace_id})
         elif message_type == 'button':
             reply = message.get('button', {})
             message_text = (
@@ -158,15 +170,15 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
                 reply.get('text') or
                 "Mensagem de botão vazia"
             )
-            logger.info(f"🔘 Botão de Template pressionado, texto extraído: '{message_text}'")
-            logger.info(f"[DEBUG] Mensagem extraída do WhatsApp: {message_text}")
+            logger.info(f"[TRACE {trace_id}] 🔘 Botão de Template pressionado, texto extraído: '{message_text}'", extra={"trace_id": trace_id})
+            logger.info(f"[TRACE {trace_id}] [DEBUG] Mensagem extraída do WhatsApp: {message_text}", extra={"trace_id": trace_id})
         else:
             message_text = f"Mensagem do tipo '{message_type}' não suportado recebida"
 
         if not phone_number:
-            logger.warning("⚠️ phone_number vazio na mensagem recebida! Estrutura possivelmente inválida.")
+            logger.warning(f"[TRACE {trace_id}] ⚠️ phone_number vazio na mensagem recebida! Estrutura possivelmente inválida.", extra={"trace_id": trace_id})
 
-        logger.info(f"📱 Mensagem final extraída para {phone_number}: '{message_text[:100]}'")
+        logger.info(f"[TRACE {trace_id}] 📱 Mensagem final extraída para {phone_number}: '{message_text[:100]}'", extra={"trace_id": trace_id})
         
         return WhatsAppMessage(
             phone=phone_number,
@@ -176,7 +188,7 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
         )
         
     except Exception as e:
-        logger.error(f"❌ Erro crítico ao extrair mensagem do webhook: {str(e)}")
+        logger.error(f"[TRACE {trace_id}] ❌ Erro crítico ao extrair mensagem do webhook: {str(e)}", extra={"trace_id": trace_id})
         return None
 
 
@@ -350,11 +362,8 @@ async def verify_webhook(request: Request):
 
 @app.post("/webhook")
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
-    """
-    Recebe webhooks do WhatsApp com mensagens dos leads.
-    
-    Processa a mensagem e aciona o workflow Kestra em background.
-    """
+    trace_id = str(uuid.uuid4())
+    logger.info(f"[TRACE {trace_id}] Nova requisição recebida", extra={"trace_id": trace_id})
     try:
         # Ler payload
         payload = await request.body()
@@ -366,40 +375,51 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         # Verificar assinatura (se configurada)
         signature = request.headers.get("X-Hub-Signature-256", "")
         if not verify_webhook_signature(payload, signature):
-            logger.warning("❌ Assinatura inválida")
+            logger.warning(f"[TRACE {trace_id}] ❌ Assinatura inválida", extra={"trace_id": trace_id})
             raise HTTPException(status_code=403, detail="Assinatura inválida")
         
         # Parsear JSON
         webhook_data = json.loads(payload.decode())
-        logger.info(f"🔍 PAYLOAD BRUTO DO WHATSAPP: {json.dumps(webhook_data, indent=2)}")
+        logger.info(f"[TRACE {trace_id}] 🔍 PAYLOAD BRUTO DO WHATSAPP: {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
+        logger.info(f"[TRACE {trace_id}] 📨 Webhook recebido: {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
         
-        logger.info(f"📨 Webhook recebido: {json.dumps(webhook_data, indent=2)}")
-        
-        # Extrair mensagem
-        message = extract_whatsapp_message(webhook_data)
-        
-        if message:
+        # --- FILTRO: Só processa mensagens de texto ---
+        entry = webhook_data.get('entry', [])
+        if not entry or not entry[0].get('changes'):
+            logger.warning(f"[TRACE {trace_id}] entry vazio ou sem changes", extra={"trace_id": trace_id})
+            return {"status": "ignored", "reason": "entry vazio ou sem changes", "trace_id": trace_id}
+        value = entry[0]['changes'][0].get('value', {})
+        messages = value.get('messages', [])
+        if not messages:
+            logger.info(f"[TRACE {trace_id}] 📡 Webhook recebido sem mensagens (provavelmente um status de entrega)", extra={"trace_id": trace_id})
+            return {"status": "ignored", "reason": "sem mensagens", "trace_id": trace_id}
+        message = messages[0]
+        message_type = message.get('type', '')
+        if message_type != 'text':
+            logger.info(f"[TRACE {trace_id}] Ignorando mensagem do tipo '{message_type}'", extra={"trace_id": trace_id})
+            return {"status": "ignored", "reason": f"tipo '{message_type}'", "trace_id": trace_id}
+        # --- FIM DO FILTRO ---
+        # Extrair mensagem (agora garantido ser texto)
+        message_obj = extract_whatsapp_message(webhook_data, trace_id=trace_id)
+        if message_obj:
             # Processar em background para resposta rápida
-            background_tasks.add_task(trigger_kestra_workflow, message)
-            
-            logger.info(f"✅ Mensagem processada: {message.phone} -> {message.message[:50]}...")
-            
+            background_tasks.add_task(trigger_kestra_workflow, message_obj)
+            logger.info(f"[TRACE {trace_id}] ✅ Mensagem processada: {message_obj.phone} -> {message_obj.message[:50]}...", extra={"trace_id": trace_id})
             return {
                 "status": "received",
-                "phone": message.phone,
-                "message_preview": message.message[:100],
-                "timestamp": datetime.now().isoformat()
+                "phone": message_obj.phone,
+                "message_preview": message_obj.message[:100],
+                "timestamp": datetime.now().isoformat(),
+                "trace_id": trace_id
             }
         else:
-            logger.info("📭 Webhook sem mensagem relevante")
-            return {"status": "acknowledged"}
-            
+            logger.info(f"[TRACE {trace_id}] 📭 Webhook sem mensagem relevante", extra={"trace_id": trace_id})
+            return {"status": "acknowledged", "trace_id": trace_id}
     except json.JSONDecodeError:
-        logger.error("❌ Payload JSON inválido")
+        logger.error(f"[TRACE {trace_id}] ❌ Payload JSON inválido", extra={"trace_id": trace_id})
         raise HTTPException(status_code=400, detail="JSON inválido")
-        
     except Exception as e:
-        logger.error(f"💥 Erro no processamento: {str(e)}")
+        logger.error(f"[TRACE {trace_id}] 💥 Erro no processamento: {str(e)}", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Erro interno")
 
 
