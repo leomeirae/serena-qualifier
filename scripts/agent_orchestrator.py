@@ -108,24 +108,27 @@ agent_with_chat_history = RunnableWithMessageHistory(
 
 # --- PASSO 3: Função Principal de Execução ---
 
-def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None):
+def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None, message_type: str = "text"):
     """
     Recebe a mensagem limpa do usuário, prepara a entrada e invoca o agente com memória.
+    message_type: tipo da mensagem (ex: 'text', 'button')
     """
     import logging
     logger = logging.getLogger(__name__)
     
-    # Lógica de entrada simplificada
+    # Lógica de entrada diferenciada
     if image_url:
         input_data = f"O usuário {phone_number} enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
+    elif message_type == "button":
+        # Marcar explicitamente que veio de botão
+        input_data = f"[BOTÃO] {user_message}"
     else:
-        # A mensagem já é o conteúdo real, seja texto ou o título de um botão.
         input_data = user_message
 
     config = {"configurable": {"session_id": phone_number}}
 
     try:
-        logger.info(f"🤖 Invocando agente para {phone_number} com input: '{input_data[:100]}...'")
+        logger.info(f"🤖 Invocando agente para {phone_number} com input: '{input_data[:100]}...' (type={message_type})")
         
         # Formata o prompt do sistema com os dados do lead
         formatted_prompt = prompt.partial(lead_name=lead_name, lead_city=lead_city)
@@ -161,11 +164,14 @@ if __name__ == '__main__':
     parser.add_argument('--lead_city', type=str, default="", help='Cidade do lead (opcional).')
     parser.add_argument('--lead_name', type=str, default="", help='Nome do lead (opcional).')
     parser.add_argument('--image_url', type=str, help='URL da imagem (opcional).')
+    parser.add_argument('--message_type', type=str, default="text", help='Tipo da mensagem (ex: text, button)')
     
     args = parser.parse_args()
 
     # Executa a lógica do agente
-    result = handle_agent_invocation(args.phone_number, args.message, args.lead_city, args.lead_name, args.image_url)
+    result = handle_agent_invocation(
+        args.phone_number, args.message, args.lead_city, args.lead_name, args.image_url, args.message_type
+    )
     
     # Imprime o resultado final em formato JSON para ser consumido pelo Kestra
     print(json.dumps(result)) 

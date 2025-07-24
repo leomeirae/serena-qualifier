@@ -81,8 +81,9 @@ tasks:
           from scripts.agent_orchestrator import handle_agent_invocation
           phone_number = os.environ.get('PHONE_NUMBER')
           user_message = os.environ.get('USER_MESSAGE')
-          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}...")
-          result = handle_agent_invocation(phone_number, user_message)
+          message_type = os.environ.get('MESSAGE_TYPE', 'text')
+          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}... (type={message_type})")
+          result = handle_agent_invocation(phone_number, user_message, message_type=message_type)
           response = result.get('response', 'Desculpe, ocorreu um erro interno.')
           logger.info(f"[AI] Resposta gerada: {len(response)} chars")
           Kestra.outputs({'response': response})
