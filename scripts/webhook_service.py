@@ -115,56 +115,55 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
 
 def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppMessage]:
     """
-    Extrai dados da mensagem do payload do WhatsApp de forma robusta,
-    baseado na estrutura real do webhook, e ignorando webhooks de status.
+    Extrai dados da mensagem do payload do WhatsApp de forma robusta.
     """
     try:
         entry = webhook_data.get('entry', [])
-        if not entry: return None
-
-        value = entry[0].get('changes', [{}])[0].get('value', {})
-
-        if 'statuses' in value:
-            logger.info("✅ Webhook de status recebido e ignorado.")
+        if not entry or not entry[0].get('changes'):
             return None
-
-        message = value.get('messages', [{}])[0]
-        if not message:
-            logger.info("ℹ️ Webhook recebido sem um objeto de mensagem válido.")
+            
+        value = entry[0]['changes'][0].get('value', {})
+        messages = value.get('messages', [])
+        
+        if not messages:
+            logger.info("📭 Webhook recebido sem mensagens (provavelmente um status de entrega)")
             return None
-
+            
+        message = messages[0]
         phone_number = message.get('from', '')
         message_type = message.get('type', '')
         timestamp = message.get('timestamp', str(int(datetime.now().timestamp())))
-
+        
         message_text = ""
         media_id = None
-
+        
         if message_type == 'text':
             message_text = message.get('text', {}).get('body', '')
         elif message_type == 'image':
             media_id = message.get('image', {}).get('id', '')
-            message_text = message.get('image', {}).get('caption', 'Imagem recebida')
-        elif message_type == 'button':
-            message_text = message.get('button', {}).get('text', 'Clique de botão sem texto')
+            message_text = message.get('image', {}).get('caption', 'Imagem enviada')
         elif message_type == 'interactive':
             reply = message.get('interactive', {}).get('button_reply', {})
-            message_text = reply.get('title', 'Clique de botão interativo')
+            message_text = reply.get('title', 'Botão Interativo Clicado')
+            logger.info(f"🔘 Botão Interativo pressionado, título extraído: '{message_text}'")
+        elif message_type == 'button':
+            reply = message.get('button', {})
+            message_text = reply.get('text', 'Botão de Template Clicado')
+            logger.info(f"🔘 Botão de Template pressionado, texto extraído: '{message_text}'")
         else:
-            message_text = f"Tipo de mensagem '{message_type}' não suportado."
+            message_text = f"Mensagem do tipo '{message_type}' não suportado recebida"
 
-        # --- MUDANÇA PARA VERIFICAÇÃO ---
-        logger.info(f"📱 [VERSÃO CORRETA] Mensagem do usuário extraída: '{message_text}'")
-
+        logger.info(f"📱 Mensagem final extraída para {phone_number}: '{message_text[:100]}'")
+        
         return WhatsAppMessage(
             phone=phone_number,
             message=message_text,
             media_id=media_id,
             timestamp=timestamp
         )
-
+        
     except Exception as e:
-        logger.error(f"💥 Erro inesperado ao extrair mensagem: {str(e)}")
+        logger.error(f"❌ Erro crítico ao extrair mensagem do webhook: {str(e)}")
         return None
 
 

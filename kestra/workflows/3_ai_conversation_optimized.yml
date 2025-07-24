@@ -39,7 +39,7 @@ tasks:
   # FASE 3: PROCESSAMENTO IA
   - id: ai_agent_processing
     type: io.kestra.plugin.scripts.python.Script
-    description: "Processamento principal do agente IA"
+    description: "Processamento principal do agente IA com entrada direta do webhook"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: kestra-agent:latest
@@ -64,7 +64,6 @@ tasks:
       scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
       scripts/agent_tools/__init__.py: ""
     script: |
-      # ADICIONE ESTAS DUAS LINHAS NO TOPO DO SCRIPT:
       import sys
       sys.path.insert(0, '/app')
       import os
@@ -76,25 +75,16 @@ tasks:
       logger = logging.getLogger(__name__)
       
       try:
-          # Suprimir warnings do LangChain
           import warnings
           warnings.filterwarnings("ignore", category=UserWarning)
-          
           from scripts.agent_orchestrator import handle_agent_invocation
-          
-          # CORREÇÃO: Pega os dados das variáveis de ambiente, que vêm da task anterior.
           phone_number = os.environ.get('PHONE_NUMBER')
           user_message = os.environ.get('USER_MESSAGE')
-          
           logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}...")
-          
           result = handle_agent_invocation(phone_number, user_message)
-          
           response = result.get('response', 'Desculpe, ocorreu um erro interno.')
           logger.info(f"[AI] Resposta gerada: {len(response)} chars")
-          
           Kestra.outputs({'response': response})
-          
       except Exception as e:
           logger.error(f"[ERROR] Erro no processamento IA: {str(e)}")
           fallback_response = "Olá! Sou a Sílvia da Serena Energia. 😊 No momento estou com dificuldades técnicas. Por favor, tente novamente em alguns minutos ou entre em contato conosco pelo nosso canal oficial. Obrigada pela compreensão!"
