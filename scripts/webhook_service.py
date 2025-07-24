@@ -166,11 +166,8 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -
             logger.info(f"[TRACE {trace_id}] 🔘 Interativo pressionado, texto extraído: '{message_text}'", extra={"trace_id": trace_id})
         elif message_type == 'button':
             reply = message.get('button', {})
-            message_text = (
-                reply.get('payload') or
-                reply.get('text') or
-                "Mensagem de botão vazia"
-            )
+            logger.info(f"[TRACE {trace_id}] Campos do botão: {json.dumps(message.get('button', {}), indent=2)}", extra={"trace_id": trace_id})
+            message_text = reply.get('payload') or reply.get('text') or "Mensagem de botão vazia"
             logger.info(f"[TRACE {trace_id}] 🔘 Botão de Template pressionado, texto extraído: '{message_text}'", extra={"trace_id": trace_id})
             logger.info(f"[TRACE {trace_id}] [DEBUG] Mensagem extraída do WhatsApp: {message_text}", extra={"trace_id": trace_id})
         else:
@@ -397,6 +394,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             return {"status": "ignored", "reason": "sem mensagens", "trace_id": trace_id}
 
         # Chama o parser universal para texto E botão!
+        logger.info(f"[TRACE {trace_id}] PAYLOAD BRUTO (DEBUG): {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
         message_obj = extract_whatsapp_message(webhook_data, trace_id=trace_id)
         if not message_obj:
             logger.info(f"[TRACE {trace_id}] 📭 Webhook sem mensagem relevante", extra={"trace_id": trace_id})
