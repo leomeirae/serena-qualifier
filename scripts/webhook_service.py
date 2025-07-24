@@ -126,7 +126,7 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
         messages = value.get('messages', [])
         
         if not messages:
-            logger.info("📭 Webhook recebido sem mensagens (provavelmente um status de entrega)")
+            logger.info("📡 Webhook recebido sem mensagens (provavelmente um status de entrega)")
             return None
             
         message = messages[0]
