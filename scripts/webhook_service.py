@@ -434,7 +434,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             # Log do conteúdo do botão
             logger.info(f"[TRACE {trace_id}] Botão pressionado: raw='{button_payload}', std='{button_payload_std}'", extra={"trace_id": trace_id})
             phone_number = message.get('from', '')
-            timestamp = message.get('timestamp', str(int(datetime.now().isoformat())))
+            timestamp = message.get('timestamp', datetime.now().isoformat())
             msg_obj = WhatsAppMessage(phone=phone_number, message=button_payload_std, timestamp=timestamp, type="button")
             background_tasks.add_task(trigger_kestra_workflow, msg_obj)
             return {
