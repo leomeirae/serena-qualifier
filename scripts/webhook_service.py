@@ -143,9 +143,14 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
             media_id = message.get('image', {}).get('id', '')
             message_text = message.get('image', {}).get('caption', 'Imagem enviada')
         elif message_type == 'interactive':
-            reply = message.get('interactive', {}).get('button_reply', {})
-            message_text = reply.get('title', 'Botão Interativo Clicado')
-            logger.info(f"🔘 Botão Interativo pressionado, título extraído: '{message_text}'")
+            interactive = message.get('interactive', {})
+            if 'button_reply' in interactive:
+                message_text = interactive['button_reply'].get('title', 'Botão Interativo')
+            elif 'list_reply' in interactive:
+                message_text = interactive['list_reply'].get('title', 'Item de Lista')
+            else:
+                message_text = 'Interação desconhecida'
+            logger.info(f"🔘 Interativo pressionado, texto extraído: '{message_text}'")
         elif message_type == 'button':
             reply = message.get('button', {})
             message_text = (
@@ -157,6 +162,9 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any]) -> Optional[WhatsAppM
             logger.info(f"[DEBUG] Mensagem extraída do WhatsApp: {message_text}")
         else:
             message_text = f"Mensagem do tipo '{message_type}' não suportado recebida"
+
+        if not phone_number:
+            logger.warning("⚠️ phone_number vazio na mensagem recebida! Estrutura possivelmente inválida.")
 
         logger.info(f"📱 Mensagem final extraída para {phone_number}: '{message_text[:100]}'")
         
