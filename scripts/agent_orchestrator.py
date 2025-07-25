@@ -208,6 +208,9 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
     storage_path = None  # Caminho da imagem no storage
     signed_url = None   # URL segura para acesso à imagem
     
+    # Log inicial para debug
+    logger.info(f"[DEBUG] handle_agent_invocation chamado com: message_type={message_type}, media_id={media_id}, user_message={user_message[:50]}...")
+    
     # --- PROCESSAMENTO DE IMAGEM DO WHATSAPP ---
     if message_type == "image" and media_id:
         logger.info(f"[WHATSAPP IMAGE] Processando imagem com media_id: {media_id} para {phone_number}")
@@ -346,6 +349,10 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
     elif message_type == "image" and not media_id:
         # Caso de imagem sem media_id (fallback)
         input_data = f"O usuário {phone_number} enviou uma imagem, mas não foi possível processá-la. Mensagem: {user_message}"
+    elif message_type == "image" and media_id:
+        # Caso de imagem com media_id mas que não foi processada (erro)
+        logger.error(f"[WHATSAPP IMAGE] Media ID presente mas não foi processado: {media_id}")
+        input_data = f"O usuário {phone_number} enviou uma imagem, mas houve um erro no processamento. Media ID: {media_id}"
     else:
         input_data = user_message
 
