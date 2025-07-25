@@ -478,6 +478,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         if not message_obj:
             logger.info(f"[TRACE {trace_id}] 📭 Webhook sem mensagem relevante", extra={"trace_id": trace_id})
             return {"status": "acknowledged", "trace_id": trace_id}
+        
+        # Log detalhado do message object
+        logger.info(f"[TRACE {trace_id}] 🔍 Message object details - Type: {message_obj.type}, Media ID: {message_obj.media_id}, Message: {message_obj.message[:50]}...", extra={"trace_id": trace_id})
 
         # Garante o type correto
         message_type = messages[0].get('type', '')
