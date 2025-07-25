@@ -323,26 +323,62 @@ def baixar_e_rehospedar_imagem_whatsapp(media_id: str, lead_phone: str) -> str:
     Baixa a imagem do WhatsApp via media_id, faz upload para Supabase Storage e retorna signed URL.
     """
     import requests
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"[MEDIA BROKER] Iniciando processamento para media_id: {media_id}, phone: {lead_phone}")
+    
     access_token = os.getenv('WHATSAPP_API_TOKEN')
+    if not access_token:
+        raise Exception("WHATSAPP_API_TOKEN não configurado")
+    
     # 1. Obter URL temporária
     url = f'https://graph.facebook.com/v19.0/{media_id}'
     headers = {'Authorization': f'Bearer {access_token}'}
-    media_info = requests.get(url, headers=headers).json()
+    
+    logger.info(f"[MEDIA BROKER] Fazendo requisição para: {url}")
+    media_response = requests.get(url, headers=headers)
+    
+    if media_response.status_code != 200:
+        logger.error(f"[MEDIA BROKER] Erro na API do WhatsApp: {media_response.status_code} - {media_response.text}")
+        raise Exception(f"Erro na API do WhatsApp: {media_response.status_code}")
+    
+    media_info = media_response.json()
+    logger.info(f"[MEDIA BROKER] Resposta da API: {media_info}")
+    
     media_url = media_info.get('url')
     if not media_url:
+        logger.error(f"[MEDIA BROKER] URL não encontrada na resposta: {media_info}")
         raise Exception(f"Não foi possível obter a URL da mídia para o media_id {media_id}")
+    
+    logger.info(f"[MEDIA BROKER] URL temporária obtida: {media_url}")
+    
     # 2. Baixar a imagem
-    media_response = requests.get(media_url, headers=headers)
-    if media_response.status_code != 200:
-        raise Exception(f"Erro ao baixar imagem do WhatsApp: {media_response.status_code}")
+    logger.info(f"[MEDIA BROKER] Baixando imagem...")
+    media_download_response = requests.get(media_url, headers=headers)
+    if media_download_response.status_code != 200:
+        logger.error(f"[MEDIA BROKER] Erro ao baixar imagem: {media_download_response.status_code}")
+        raise Exception(f"Erro ao baixar imagem do WhatsApp: {media_download_response.status_code}")
+    
     local_file_path = f'/tmp/{media_id}_{lead_phone}.jpg'
     with open(local_file_path, 'wb') as f:
-        f.write(media_response.content)
+        f.write(media_download_response.content)
+    
+    logger.info(f"[MEDIA BROKER] Imagem salva localmente: {local_file_path}")
+    
     # 3. Upload para Supabase
-    # lead_id pode ser buscado depois, aqui usamos 0 como placeholder
-    storage_path = upload_energy_bill_image(local_file_path, 0, lead_phone)
-    signed_url = generate_signed_url(storage_path)
-    return signed_url
+    logger.info(f"[MEDIA BROKER] Fazendo upload para Supabase...")
+    try:
+        storage_path = upload_energy_bill_image(local_file_path, 0, lead_phone)
+        logger.info(f"[MEDIA BROKER] Upload concluído: {storage_path}")
+        
+        signed_url = generate_signed_url(storage_path)
+        logger.info(f"[MEDIA BROKER] Signed URL gerada: {signed_url}")
+        
+        return signed_url
+    except Exception as e:
+        logger.error(f"[MEDIA BROKER] Erro no upload para Supabase: {str(e)}")
+        raise
 
 
 @app.get("/")
@@ -443,13 +479,19 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         message_type = messages[0].get('type', '')
         message_obj.type = message_type
         # --- INTEGRAÇÃO MEDIA BROKER ---
+        logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Verificando tipo: {message_obj.type}, media_id: {message_obj.media_id}", extra={"trace_id": trace_id})
+        
         if message_obj.type == 'image' and message_obj.media_id:
+            logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Processando imagem com media_id: {message_obj.media_id}", extra={"trace_id": trace_id})
             try:
                 signed_url = baixar_e_rehospedar_imagem_whatsapp(message_obj.media_id, message_obj.phone)
+                logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Signed URL gerada com sucesso: {signed_url[:100]}...", extra={"trace_id": trace_id})
                 message_obj.message = signed_url  # Substitui mensagem pelo link real da imagem
             except Exception as e:
                 logger.error(f"[TRACE {trace_id}] [MEDIA BROKER ERROR] Falha ao baixar/uploadar imagem: {str(e)}", extra={"trace_id": trace_id})
                 message_obj.message = "[ERRO] Falha ao processar imagem. Por favor, envie novamente ou tente mais tarde."
+        else:
+            logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Não é imagem ou não tem media_id. Tipo: {message_obj.type}, Media ID: {message_obj.media_id}", extra={"trace_id": trace_id})
         background_tasks.add_task(trigger_kestra_workflow, message_obj)
         logger.info(f"[TRACE {trace_id}] ✅ Mensagem processada: {message_obj.phone} -> {message_obj.message[:100]}...", extra={"trace_id": trace_id})
         return {
