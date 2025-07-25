@@ -93,6 +93,7 @@ tasks:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+      WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
