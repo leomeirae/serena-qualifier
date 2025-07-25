@@ -199,7 +199,7 @@ def clean_for_whatsapp(text: str) -> str:
     text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII')
     return text
 
-def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None, message_type: str = "text", clean_text: bool = False):
+def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None, message_type: str = "text", clean_text: bool = False, media_id: str = ""):
     """
     Parâmetro clean_text: se True, aplica limpeza de acentos/caracteres especiais na resposta final.
     """
@@ -207,8 +207,76 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
     logger = logging.getLogger(__name__)
     storage_path = None  # Caminho da imagem no storage
     signed_url = None   # URL segura para acesso à imagem
+    
+    # --- PROCESSAMENTO DE IMAGEM DO WHATSAPP ---
+    if message_type == "image" and media_id:
+        logger.info(f"[WHATSAPP IMAGE] Processando imagem com media_id: {media_id} para {phone_number}")
+        try:
+            # Obter URL temporária do WhatsApp usando media_id
+            whatsapp_token = os.getenv("WHATSAPP_API_TOKEN")
+            if not whatsapp_token:
+                logger.error("[WHATSAPP IMAGE] WHATSAPP_API_TOKEN não configurado")
+                return {"response": "Configuração incompleta para processamento de imagem. Por favor, tente novamente."}
+            
+            # 1. Obter URL temporária do WhatsApp
+            url = f'https://graph.facebook.com/v19.0/{media_id}'
+            headers = {'Authorization': f'Bearer {whatsapp_token}'}
+            
+            logger.info(f"[WHATSAPP IMAGE] Obtendo URL temporária para media_id: {media_id}")
+            media_response = requests.get(url, headers=headers, timeout=10)
+            
+            if media_response.status_code != 200:
+                logger.error(f"[WHATSAPP IMAGE] Erro ao obter URL temporária: {media_response.status_code}")
+                return {"response": "Não foi possível acessar a imagem enviada. Por favor, tente novamente."}
+            
+            media_info = media_response.json()
+            media_url = media_info.get('url')
+            
+            if not media_url:
+                logger.error(f"[WHATSAPP IMAGE] URL não encontrada na resposta: {media_info}")
+                return {"response": "Não foi possível obter a URL da imagem. Por favor, tente novamente."}
+            
+            logger.info(f"[WHATSAPP IMAGE] URL temporária obtida, baixando imagem...")
+            
+            # 2. Baixar a imagem
+            image_response = requests.get(media_url, headers=headers, timeout=10)
+            if image_response.status_code != 200:
+                logger.error(f"[WHATSAPP IMAGE] Erro ao baixar imagem: {image_response.status_code}")
+                return {"response": "Não foi possível baixar a imagem. Por favor, tente novamente."}
+            
+            # 3. Processar com lead_id
+            lead_id = get_lead_id_by_phone(phone_number)
+            if not lead_id:
+                logger.error(f"[WHATSAPP IMAGE] Lead não encontrado para o telefone: {phone_number}")
+                return {"response": "Não consegui identificar seu cadastro. Por favor, envie seu nome e cidade para continuar."}
+            
+            # 4. Salvar localmente e fazer upload
+            local_file_path = f"/tmp/{lead_id}_{phone_number}.jpg"
+            with open(local_file_path, "wb") as f:
+                f.write(image_response.content)
+            
+            logger.info(f"[WHATSAPP IMAGE] Imagem salva localmente, fazendo upload para Supabase...")
+            
+            # 5. Upload para Supabase
+            storage_path = upload_energy_bill_image(local_file_path, lead_id, phone_number)
+            
+            # 6. Gerar signed URL
+            signed_url = generate_signed_url(storage_path)
+            
+            # 7. Salvar no banco
+            salvar_energy_bill(lead_id, phone_number, storage_path)
+            
+            logger.info(f"[WHATSAPP IMAGE] Processamento concluído com sucesso. Signed URL: {signed_url[:50]}...")
+            
+            # Atualizar input_data para o agente
+            input_data = f"O usuário {phone_number} enviou uma conta de energia. URL segura: {signed_url}"
+            
+        except Exception as e:
+            logger.error(f"[WHATSAPP IMAGE] Erro no processamento: {str(e)}")
+            return {"response": "Houve um erro ao processar a imagem enviada. Por favor, tente novamente."}
+    
     # --- Autodiagnóstico do pipeline ---
-    if image_url and not is_valid_image_url(image_url):
+    elif image_url and not is_valid_image_url(image_url):
         logger.error(f"[PIPELINE ERROR] URL de imagem inválida recebida: {image_url} | phone: {phone_number} | mensagem: {user_message}")
         return {"response": "Houve uma falha ao receber a imagem enviada. O sistema não reconheceu a imagem corretamente. Por favor, tente enviar novamente ou envie uma mensagem de texto se preferir."}
     # Lógica incremental para processar imagem recebida via WhatsApp
@@ -251,6 +319,9 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
             return {"response": f"Houve um erro ao processar a imagem enviada. Por favor, tente novamente. Erro: {str(e)}"}
     elif message_type == "button":
         input_data = f"[BOTÃO] {user_message} (Usuário: {phone_number})"
+    elif message_type == "image" and not media_id:
+        # Caso de imagem sem media_id (fallback)
+        input_data = f"O usuário {phone_number} enviou uma imagem, mas não foi possível processá-la. Mensagem: {user_message}"
     else:
         input_data = user_message
 

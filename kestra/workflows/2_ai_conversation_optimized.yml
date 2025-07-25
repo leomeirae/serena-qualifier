@@ -52,6 +52,7 @@ tasks:
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
       MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
+      MEDIA_ID: "{{ trigger.body.media_id | default('') }}"
       REDIS_URL: "{{ vars.redis_url }}"
       PYTHONPATH: "/app"
     inputFiles:
@@ -82,8 +83,9 @@ tasks:
           phone_number = os.environ.get('PHONE_NUMBER')
           user_message = os.environ.get('USER_MESSAGE')
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
-          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}... (type={message_type})")
-          result = handle_agent_invocation(phone_number, user_message, message_type=message_type)
+          media_id = os.environ.get('MEDIA_ID', '')
+          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}... (type={message_type}, media_id={media_id})")
+          result = handle_agent_invocation(phone_number, user_message, message_type=message_type, media_id=media_id)
           response = result.get('response', 'Desculpe, ocorreu um erro interno.')
           logger.info(f"[AI] Resposta gerada: {len(response)} chars")
           Kestra.outputs({'response': response})
