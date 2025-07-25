@@ -212,17 +212,19 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
     if message_type == "image" and media_id:
         logger.info(f"[WHATSAPP IMAGE] Processando imagem com media_id: {media_id} para {phone_number}")
         try:
-            # Funções auxiliares para download de mídia do WhatsApp
+            # Funções auxiliares para download de mídia do WhatsApp Cloud API
             def get_media_url(media_id, token):
-                """Obtém a URL temporária da mídia do WhatsApp"""
-                url = f"https://graph.facebook.com/v20.0/{media_id}"
+                """Obtém a URL temporária da mídia do WhatsApp Cloud API"""
+                url = f"https://graph.facebook.com/v23.0/{media_id}"
                 headers = {"Authorization": f"Bearer {token}"}
                 response = requests.get(url, headers=headers, timeout=10)
                 response.raise_for_status()
-                return response.json()["url"]
+                data = response.json()
+                logger.info(f"[WHATSAPP IMAGE] Resposta da API: {data}")
+                return data.get("url")
             
             def download_image(media_url, token):
-                """Baixa a imagem usando a URL temporária"""
+                """Baixa a imagem usando a URL temporária (Cloud API)"""
                 headers = {"Authorization": f"Bearer {token}"}
                 resp = requests.get(media_url, headers=headers, timeout=10)
                 resp.raise_for_status()
@@ -234,13 +236,18 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
                 logger.error("[WHATSAPP IMAGE] WHATSAPP_API_TOKEN não configurado")
                 return {"response": "Configuração incompleta para processamento de imagem. Por favor, tente novamente."}
             
-            # 1. Obter URL temporária do WhatsApp
+            # 1. Obter URL temporária do WhatsApp Cloud API
             logger.info(f"[WHATSAPP IMAGE] Obtendo URL temporária para media_id: {media_id}")
             media_url = get_media_url(media_id, whatsapp_token)
+            
+            if not media_url:
+                logger.error(f"[WHATSAPP IMAGE] URL não encontrada na resposta da API")
+                return {"response": "Não foi possível obter a URL da imagem. Por favor, tente novamente."}
+            
             logger.info(f"[WHATSAPP IMAGE] URL temporária obtida: {media_url[:50]}...")
             
-            # 2. Baixar a imagem
-            logger.info(f"[WHATSAPP IMAGE] Baixando imagem...")
+            # 2. Baixar a imagem (Cloud API - URL expira em 5 minutos)
+            logger.info(f"[WHATSAPP IMAGE] Baixando imagem da URL temporária...")
             image_bytes = download_image(media_url, whatsapp_token)
             logger.info(f"[WHATSAPP IMAGE] Imagem baixada com sucesso ({len(image_bytes)} bytes)")
             
