@@ -480,20 +480,22 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         # Garante o type correto
         message_type = messages[0].get('type', '')
         message_obj.type = message_type
+        logger.info(f"[TRACE {trace_id}] 🔍 Message object após extração - Type: {message_obj.type}, Media ID: {message_obj.media_id}, Message: {message_obj.message[:50]}...", extra={"trace_id": trace_id})
         # --- INTEGRAÇÃO MEDIA BROKER ---
         logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Verificando tipo: {message_obj.type}, media_id: {message_obj.media_id}", extra={"trace_id": trace_id})
         
         if message_obj.type == 'image' and message_obj.media_id:
-            logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Processando imagem com media_id: {message_obj.media_id}", extra={"trace_id": trace_id})
+            logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] ✅ Processando imagem com media_id: {message_obj.media_id}", extra={"trace_id": trace_id})
             try:
                 signed_url = baixar_e_rehospedar_imagem_whatsapp(message_obj.media_id, message_obj.phone)
-                logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Signed URL gerada com sucesso: {signed_url[:100]}...", extra={"trace_id": trace_id})
+                logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] ✅ Signed URL gerada com sucesso: {signed_url[:100]}...", extra={"trace_id": trace_id})
                 message_obj.message = signed_url  # Substitui mensagem pelo link real da imagem
+                logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] ✅ Message object atualizado com signed URL", extra={"trace_id": trace_id})
             except Exception as e:
                 logger.error(f"[TRACE {trace_id}] [MEDIA BROKER ERROR] Falha ao baixar/uploadar imagem: {str(e)}", extra={"trace_id": trace_id})
                 message_obj.message = "[ERRO] Falha ao processar imagem. Por favor, envie novamente ou tente mais tarde."
         else:
-            logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] Não é imagem ou não tem media_id. Tipo: {message_obj.type}, Media ID: {message_obj.media_id}", extra={"trace_id": trace_id})
+            logger.info(f"[TRACE {trace_id}] [MEDIA BROKER] ❌ Não é imagem ou não tem media_id. Tipo: {message_obj.type}, Media ID: {message_obj.media_id}", extra={"trace_id": trace_id})
         background_tasks.add_task(trigger_kestra_workflow, message_obj)
         logger.info(f"[TRACE {trace_id}] ✅ Mensagem processada: {message_obj.phone} -> {message_obj.message[:100]}...", extra={"trace_id": trace_id})
         return {
