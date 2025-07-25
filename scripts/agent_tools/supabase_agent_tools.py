@@ -166,9 +166,9 @@ def upload_energy_bill_image(local_file_path: str, lead_id: int, phone: str) -> 
     Retorna o caminho (storage_path) salvo no banco.
     """
     SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
-        raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
+        raise Exception("SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configurados nas variáveis de ambiente.")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bucket_name = "energy-bills"
     storage_path = f"{lead_id}_{phone}.jpg"
@@ -183,9 +183,9 @@ def generate_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     expires_in: tempo de validade em segundos (padrão: 1 hora)
     """
     SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
-        raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
+        raise Exception("SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configurados nas variáveis de ambiente.")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bucket_name = "energy-bills"
     signed_url = supabase.storage.from_(bucket_name).create_signed_url(storage_path, expires_in)
@@ -209,10 +209,10 @@ def save_image_metadata(wamid: str, sender_phone: str, storage_path: str, lead_i
     """
     try:
         SUPABASE_URL = os.getenv("SUPABASE_URL")
-        SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+        SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         
         if not SUPABASE_URL or not SUPABASE_KEY:
-            logger.error("SUPABASE_URL ou SUPABASE_KEY não configurados")
+            logger.error("SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não configurados")
             return None
             
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
