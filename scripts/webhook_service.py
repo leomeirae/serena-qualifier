@@ -472,7 +472,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
 
         # Chama o parser universal para texto E botão!
         logger.info(f"[TRACE {trace_id}] PAYLOAD BRUTO (DEBUG): {json.dumps(webhook_data, indent=2)}", extra={"trace_id": trace_id})
+        logger.info(f"[TRACE {trace_id}] 🔍 Chamando extract_whatsapp_message...", extra={"trace_id": trace_id})
         message_obj = extract_whatsapp_message(webhook_data, trace_id=trace_id)
+        logger.info(f"[TRACE {trace_id}] 🔍 extract_whatsapp_message retornou: {message_obj}", extra={"trace_id": trace_id})
         if not message_obj:
             logger.info(f"[TRACE {trace_id}] 📭 Webhook sem mensagem relevante", extra={"trace_id": trace_id})
             return {"status": "acknowledged", "trace_id": trace_id}
