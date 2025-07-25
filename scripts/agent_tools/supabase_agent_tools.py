@@ -190,3 +190,56 @@ def generate_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     bucket_name = "energy-bills"
     signed_url = supabase.storage.from_(bucket_name).create_signed_url(storage_path, expires_in)
     return signed_url['signedURL'] if isinstance(signed_url, dict) and 'signedURL' in signed_url else signed_url 
+
+def save_image_metadata(wamid: str, sender_phone: str, storage_path: str, lead_id: int, caption: str = None, file_size_kb: int = None, mime_type: str = "image/jpeg"):
+    """
+    Salva metadados da imagem na tabela image_metadata.
+    
+    Args:
+        wamid: ID único da mensagem do WhatsApp
+        sender_phone: Número de telefone do remetente
+        storage_path: Caminho do arquivo no Supabase Storage
+        lead_id: ID do lead relacionado
+        caption: Legenda original da imagem (opcional)
+        file_size_kb: Tamanho do arquivo em KB (opcional)
+        mime_type: Tipo MIME do arquivo (padrão: image/jpeg)
+    
+    Returns:
+        dict: Dados do registro inserido
+    """
+    try:
+        SUPABASE_URL = os.getenv("SUPABASE_URL")
+        SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+        
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            logger.error("SUPABASE_URL ou SUPABASE_KEY não configurados")
+            return None
+            
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        metadata = {
+            "wamid": wamid,
+            "sender_phone": sender_phone,
+            "storage_path": storage_path,
+            "lead_id": lead_id,
+            "mime_type": mime_type,
+            "processing_status": "completed"
+        }
+        
+        if caption:
+            metadata["original_caption"] = caption
+        if file_size_kb:
+            metadata["file_size_kb"] = file_size_kb
+            
+        result = supabase.table("image_metadata").insert(metadata).execute()
+        
+        if result.data:
+            logger.info(f"Metadados salvos com sucesso para WAMID: {wamid}")
+            return result.data[0]
+        else:
+            logger.error(f"Falha ao salvar metadados para WAMID: {wamid}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Erro ao salvar metadados: {str(e)}")
+        return None 

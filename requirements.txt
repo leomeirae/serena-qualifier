@@ -21,6 +21,7 @@ langchain-community>=0.2.0
 
 # RAG dependencies (NOVO)
 numpy==1.26.4
+Pillow==10.4.0
 faiss-cpu==1.8.0
 tiktoken==0.7.0
 python-json-logger==2.0.7

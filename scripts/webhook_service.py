@@ -363,7 +363,11 @@ def baixar_e_rehospedar_imagem_whatsapp(media_id: str, lead_phone: str) -> str:
     
     # 2. Baixar a imagem
     logger.info(f"[MEDIA BROKER] Baixando imagem...")
-    media_download_response = requests.get(media_url, headers=headers)
+    download_headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "WhatsApp/2.19.81 A"  # User-Agent recomendado pelo documento
+    }
+    media_download_response = requests.get(media_url, headers=download_headers)
     if media_download_response.status_code != 200:
         logger.error(f"[MEDIA BROKER] Erro ao baixar imagem: {media_download_response.status_code}")
         raise Exception(f"Erro ao baixar imagem do WhatsApp: {media_download_response.status_code}")

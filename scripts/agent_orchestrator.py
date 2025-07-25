@@ -19,7 +19,7 @@ from scripts.agent_tools.serena_tools import (
     buscar_planos_de_energia_por_localizacao,
     analisar_conta_de_energia_de_imagem,
 )
-from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead, upload_energy_bill_image, generate_signed_url
+from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead, upload_energy_bill_image, generate_signed_url, save_image_metadata
 
 # Função incremental para obter o lead_id pelo telefone
 def get_lead_id_by_phone(phone_number: str) -> int | None:
@@ -225,7 +225,10 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
             
             def download_image(media_url, token):
                 """Baixa a imagem usando a URL temporária (Cloud API)"""
-                headers = {"Authorization": f"Bearer {token}"}
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "User-Agent": "WhatsApp/2.19.81 A"  # User-Agent recomendado pelo documento
+                }
                 resp = requests.get(media_url, headers=headers, timeout=10)
                 resp.raise_for_status()
                 return resp.content
@@ -272,6 +275,17 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
             
             # 7. Salvar no banco
             salvar_energy_bill(lead_id, phone_number, storage_path)
+            
+            # 8. Salvar metadados na tabela image_metadata
+            file_size_kb = len(image_bytes) // 1024
+            save_image_metadata(
+                wamid=f"wamid_{media_id}",  # Gerar WAMID único
+                sender_phone=phone_number,
+                storage_path=storage_path,
+                lead_id=lead_id,
+                file_size_kb=file_size_kb,
+                mime_type="image/jpeg"
+            )
             
             logger.info(f"[WHATSAPP IMAGE] Processamento concluído com sucesso. Signed URL: {signed_url[:50]}...")
             
