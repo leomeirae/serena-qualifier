@@ -340,8 +340,8 @@ def baixar_e_rehospedar_imagem_whatsapp(media_id: str, lead_phone: str) -> str:
     if not access_token:
         raise Exception("WHATSAPP_API_TOKEN não configurado")
     
-    # 1. Obter URL temporária
-    url = f'https://graph.facebook.com/v19.0/{media_id}'
+    # 1. Obter URL temporária (Cloud API v23.0)
+    url = f'https://graph.facebook.com/v23.0/{media_id}'
     headers = {'Authorization': f'Bearer {access_token}'}
     
     logger.info(f"[MEDIA BROKER] Fazendo requisição para: {url}")
@@ -359,7 +359,7 @@ def baixar_e_rehospedar_imagem_whatsapp(media_id: str, lead_phone: str) -> str:
         logger.error(f"[MEDIA BROKER] URL não encontrada na resposta: {media_info}")
         raise Exception(f"Não foi possível obter a URL da mídia para o media_id {media_id}")
     
-    logger.info(f"[MEDIA BROKER] URL temporária obtida: {media_url}")
+    logger.info(f"[MEDIA BROKER] URL temporária obtida: {media_url[:50]}...")
     
     # 2. Baixar a imagem
     logger.info(f"[MEDIA BROKER] Baixando imagem...")
