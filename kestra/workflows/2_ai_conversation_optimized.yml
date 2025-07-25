@@ -1,0 +1,164 @@
+id: 3_ai_conversation_optimized
+namespace: serena.production
+description: "Fluxo Otimizado de Conversa IA - Production Ready"
+
+triggers:
+  - id: webhook_lead_message
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_production_optimized
+    description: "Webhook para mensagens WhatsApp"
+
+variables:
+  # Configurações IA
+  ai_model: "gpt-4o-mini"
+  max_tokens: 1500
+  temperature: 0.5
+  
+  # Configurações de Storage
+  redis_url: "redis://redis:6379/0"
+  
+  # Performance
+  cache_ttl: "PT30M"
+  context_size_limit: 102400
+
+tasks:
+  # FASE 1: VALIDAÇÃO E LOGGING
+  - id: validate_trigger
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [TRIGGER] Webhook recebido - Phone: {{ trigger.body.phone ?? '5511999999999' }} | 
+      Message: {{ trigger.body.message ?? 'Teste manual' }} | 
+      Timestamp: {{ now() }}
+
+  # FASE 2: VERIFICAÇÃO DE PRIMEIRO CONTATO
+  - id: check_first_contact
+    type: io.kestra.plugin.core.kv.Get
+    key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
+    allowFailure: true
+    
+  # FASE 3: PROCESSAMENTO IA (MODIFICADA)
+  - id: ai_agent_processing
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Processamento principal do agente IA com entrada direta do webhook"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+      networkMode: coolify
+    env:
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
+      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+      USER_MESSAGE: "{{ trigger.body.message }}"
+      PHONE_NUMBER: "{{ trigger.body.phone }}"
+      MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
+      REDIS_URL: "{{ vars.redis_url }}"
+      PYTHONPATH: "/app"
+    inputFiles:
+      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
+      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
+      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      scripts/serena_api.py: "{{ read('scripts/serena_api.py') }}"
+      scripts/lead_data_utils.py: "{{ read('scripts/lead_data_utils.py') }}"
+      scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
+      scripts/agent_tools/__init__.py: ""
+    script: |
+      import sys
+      sys.path.insert(0, '/app')
+      import os
+      import logging
+      from kestra import Kestra
+      
+      # Configurar logging
+      logging.basicConfig(level=logging.INFO)
+      logger = logging.getLogger(__name__)
+      
+      try:
+          import warnings
+          warnings.filterwarnings("ignore", category=UserWarning)
+          from scripts.agent_orchestrator import handle_agent_invocation
+          phone_number = os.environ.get('PHONE_NUMBER')
+          user_message = os.environ.get('USER_MESSAGE')
+          message_type = os.environ.get('MESSAGE_TYPE', 'text')
+          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}... (type={message_type})")
+          result = handle_agent_invocation(phone_number, user_message, message_type=message_type)
+          response = result.get('response', 'Desculpe, ocorreu um erro interno.')
+          logger.info(f"[AI] Resposta gerada: {len(response)} chars")
+          Kestra.outputs({'response': response})
+      except Exception as e:
+          logger.error(f"[ERROR] Erro no processamento IA: {str(e)}")
+          fallback_response = "Olá! Sou a Sílvia da Serena Energia. 😊 No momento estou com dificuldades técnicas. Por favor, tente novamente em alguns minutos ou entre em contato conosco pelo nosso canal oficial. Obrigada pela compreensão!"
+          Kestra.outputs({'response': fallback_response})
+
+  # FASE 4: PERSISTÊNCIA
+  - id: mark_first_contact
+    type: io.kestra.plugin.core.kv.Set
+    key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
+    value: "{{ now() }}"
+    runIf: "{{ outputs.check_first_contact.value == null }}"
+
+  # FASE 5: ENVIO WHATSAPP (ESTRATÉGIA ROBUSTA)
+  - id: prepare_whatsapp_payload
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Prepara o payload JSON para o WhatsApp de forma segura"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+      networkMode: coolify
+    env:
+      AI_RESPONSE: "{{ outputs.ai_agent_processing.vars.response | default('Desculpe, ocorreu um erro interno.') }}"
+    script: |
+      import json
+      import re
+      import os
+      from kestra import Kestra
+      
+      response = os.environ.get('AI_RESPONSE')
+      
+      def clean_text(text):
+          if not text:
+              return "Desculpe, ocorreu um erro interno."
+          clean = re.sub(r'[\n\r\t]', ' ', text)
+          clean = re.sub(r'\s+', ' ', clean).strip()
+          return clean if clean else "Desculpe, ocorreu um erro interno."
+
+      payload = {
+          "messaging_product": "whatsapp",
+          "to": "{{ trigger.body.phone ?? '5511999999999' }}",
+          "type": "text",
+          "text": {"body": clean_text(response)}
+      }
+      
+      Kestra.outputs({
+          'payload': json.dumps(payload)
+      })
+
+  - id: send_whatsapp_message
+    type: io.kestra.plugin.core.http.Request
+    description: "Envia o payload JSON pré-construído para o WhatsApp"
+    uri: "https://graph.facebook.com/v20.0/599096403294262/messages"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ secret('WHATSAPP_API_TOKEN') }}"
+      Content-Type: "application/json"
+    body: "{{ outputs.prepare_whatsapp_payload.vars.payload }}"
+    allowFailure: true
+
+  # FASE 6: LOG FINAL
+  - id: final_logging
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [SUCCESS] {{ trigger.body.phone ?? '5511999999999' }} | 
+      Message Type: {{ 'N/A' }} |
+      First Contact: {{ outputs.check_first_contact.value == null ? 'YES' : 'NO' }} | 
+      AI Response: {{ outputs.ai_agent_processing.vars.response != null ? 'SUCCESS' : 'FAILED' }} | 
+      WhatsApp: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }}
+
+# Error Handling
+errors:
+  - id: global_error_handler
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [ERROR] Workflow failed for {{ trigger.body.phone ?? '5511999999999' }}

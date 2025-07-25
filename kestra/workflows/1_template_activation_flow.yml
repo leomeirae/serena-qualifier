@@ -1,0 +1,447 @@
+id: 1_lead_activation_flow
+namespace: serena.production
+description: "Workflow de ativação de lead v3 - Captura do formulário e envio de template WhatsApp inicial"
+
+triggers:
+  - id: activate_production_lead
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_production_lead
+    description: "Recebe dados do formulário de captura de lead"
+
+variables:
+  # Configurações do ambiente
+  phone_number_id: "{{ envs.whatsapp_phone_number_id }}"
+  template_name: "welcome_profile_site"  # Updated to new interactive template
+
+tasks:
+  # DEBUG: Verificar contexto disponível
+  - id: debug-context
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      === DEBUG: CONTEXTO COMPLETO ===
+      {{ printContext() }}
+      
+      === VARIÁVEIS DE AMBIENTE DISPONÍVEIS ===
+      {% for key in envs.keySet() %}
+      {{ key }}: {{ envs[key] }}
+      {% endfor %}
+
+  # Tarefa 0: Salvar lead no Supabase
+  - id: save-initial-lead
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Salva dados iniciais do lead no Supabase"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    beforeCommands:
+      - pip install kestra psycopg2-binary
+    
+    env:
+      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
+    
+    script: |
+      import json
+      import base64
+      import os
+      from kestra import Kestra
+      import psycopg2
+
+      # Decodifica a string de conexão do ambiente (base64)
+      encoded_conn_string = os.getenv('SECRET_DB_CONNECTION_STRING')
+      if not encoded_conn_string:
+          raise ValueError("SECRET_DB_CONNECTION_STRING environment variable not found")
+      
+      print(f"Encoded connection string: {encoded_conn_string}")
+      db_connection_string = base64.b64decode(encoded_conn_string).decode('utf-8')
+      print(f"Decoded connection string: {db_connection_string[:50]}...")
+
+      # Dados do lead
+      lead_data = {
+          "name":          "{{ trigger.body.name }}",
+          "whatsapp":      "{{ trigger.body.whatsapp }}",
+          "account_value": "{{ trigger.body.account_value }}",
+          "client_type":   "{{ trigger.body.client_type }}",
+          "city":          "{{ trigger.body.cidade }}",
+          "state":         "{{ trigger.body.estado }}"
+      }
+
+      try:
+          conn = psycopg2.connect(db_connection_string)
+          cur  = conn.cursor()
+
+          upsert_query = """
+            INSERT INTO leads
+              (phone_number, name, invoice_amount, client_type, city, state, additional_data, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (phone_number) DO UPDATE
+              SET name            = EXCLUDED.name,
+                  invoice_amount  = EXCLUDED.invoice_amount,
+                  client_type     = EXCLUDED.client_type,
+                  city            = EXCLUDED.city,
+                  state           = EXCLUDED.state,
+                  additional_data = EXCLUDED.additional_data,
+                  updated_at      = NOW()
+            RETURNING id, phone_number, name;
+          """
+
+          additional_data = {
+              "source":      "lead_activation_flow",
+              "form_data":   {"account_value": lead_data["account_value"]}
+          }
+
+          cur.execute(
+            upsert_query,
+            (
+              lead_data["whatsapp"],
+              lead_data["name"],
+              float(lead_data["account_value"]),
+              lead_data["client_type"],
+              lead_data["city"],
+              lead_data["state"],
+              json.dumps(additional_data)
+            )
+          )
+          result = cur.fetchone()
+          conn.commit()
+          cur.close()
+          conn.close()
+
+          Kestra.outputs({
+              "lead_saved": True,
+              "lead_id":    result[0],
+              "lead_name":  result[2],
+              "lead_phone": result[1]
+          })
+
+      except Exception as e:
+          Kestra.outputs({
+              "lead_saved":    False,
+              "error_message": str(e)
+          })
+          raise
+
+  # Tarefa 1: Enviar template WhatsApp inicial
+  - id: send-whatsapp-template
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envia template de ativação WhatsApp para o lead"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    inputFiles:
+      scripts/__init__.py: |
+        # Scripts package for Serena Qualifier
+        # Contains AI agent tools and integrations
+      scripts/send_whatsapp_template.py: |
+        #!/usr/bin/env python3
+        """
+        WhatsApp Template Sender for Lead Activation
+
+        Este script é responsável por enviar templates aprovados do WhatsApp
+        para leads que acabaram de se cadastrar no formulário de captura.
+
+        Funcionalidades:
+        - Envio de template "Ativar Perfil" personalizado
+        - Tratamento de erros da API WhatsApp
+        - Logging detalhado para debug
+        - Validação de número de telefone
+
+        Author: Serena-Coder AI Agent
+        Version: 1.0.0
+        Created: 2025-01-17
+        """
+
+        import os
+        import sys
+        import json
+        import logging
+        import requests
+        import re
+        from typing import Dict, Any, Optional
+        from dotenv import load_dotenv
+
+        # Load environment variables
+        load_dotenv()
+
+        # Configure logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        logger = logging.getLogger(__name__)
+
+
+        def normalize_phone_number(phone: str) -> str:
+            """
+            Normaliza número de telefone para o formato WhatsApp API.
+            
+            Args:
+                phone (str): Número de telefone em qualquer formato
+                
+            Returns:
+                str: Número normalizado (+5581999887766)
+            """
+            # Remove todos os caracteres não numéricos
+            clean_phone = re.sub(r'[^\d]', '', phone)
+            
+            # Se não começar com 55, adiciona código do Brasil
+            if not clean_phone.startswith('55'):
+                clean_phone = '55' + clean_phone
+            
+            # Adiciona o + no início
+            if not clean_phone.startswith('+'):
+                clean_phone = '+' + clean_phone
+            
+            logger.info(f"Phone normalized: {phone} -> {clean_phone}")
+            return clean_phone
+
+
+        def send_activation_template(
+            phone_number: str,
+            lead_name: str,
+            lead_city: str,  # NEW PARAMETER
+            phone_number_id: str,
+            template_name: str = "welcome_profile_site"  # Updated default template
+        ) -> Dict[str, Any]:
+            """
+            Envia template de ativação do WhatsApp para o lead.
+            
+            Args:
+                phone_number (str): Número do WhatsApp do lead
+                lead_name (str): Nome do lead para personalização  
+                phone_number_id (str): ID do número de telefone WhatsApp Business
+                template_name (str): Nome do template aprovado
+                
+            Returns:
+                Dict[str, Any]: Resultado do envio com status e dados
+            """
+            logger.info(f"Enviando template de ativação para {phone_number}")
+            
+            try:
+                # Validações iniciais
+                whatsapp_token = os.getenv("WHATSAPP_API_TOKEN")
+                if not whatsapp_token:
+                    raise ValueError("WHATSAPP_API_TOKEN não encontrado nas variáveis de ambiente")
+                
+                if not phone_number_id:
+                    raise ValueError("WHATSAPP_PHONE_NUMBER_ID não fornecido")
+                    
+                # Normaliza número de telefone
+                normalized_phone = normalize_phone_number(phone_number)
+                
+                # URL da API WhatsApp
+                api_url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
+                
+                # Headers da requisição
+                headers = {
+                    "Authorization": f"Bearer {whatsapp_token}",
+                    "Content-Type": "application/json"
+                }
+                
+                # Payload do template - UPDATED FOR TWO PARAMETERS
+                payload = {
+                    "messaging_product": "whatsapp",
+                    "to": normalized_phone,
+                    "type": "template",
+                    "template": {
+                        "name": template_name,
+                        "language": {
+                            "code": "pt_BR"
+                        },
+                        "components": [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {
+                                        "type": "text",
+                                        "text": lead_name  # {{1}} parameter
+                                    },
+                                    {
+                                        "type": "text", 
+                                        "text": lead_city  # {{2}} parameter
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+                
+                logger.info(f"Enviando payload: {json.dumps(payload, indent=2)}")
+                
+                # Faz a requisição para a API WhatsApp
+                response = requests.post(
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                # Processa resposta
+                if response.status_code == 200:
+                    response_data = response.json()
+                    message_id = response_data.get('messages', [{}])[0].get('id', 'N/A')
+                    
+                    logger.info(f"✅ Template enviado com sucesso! Message ID: {message_id}")
+                    
+                    return {
+                        "success": True,
+                        "message_id": message_id,
+                        "phone_number": normalized_phone,
+                        "template_name": template_name,
+                        "response_data": response_data
+                    }
+                else:
+                    error_data = response.json() if response.content else {}
+                    error_message = error_data.get('error', {}).get('message', 'Erro desconhecido')
+                    
+                    logger.error(f"❌ Erro ao enviar template: {response.status_code} - {error_message}")
+                    
+                    return {
+                        "success": False,
+                        "error": error_message,
+                        "status_code": response.status_code,
+                        "phone_number": normalized_phone,
+                        "response_data": error_data
+                    }
+                    
+            except requests.exceptions.Timeout:
+                logger.error("⏰ Timeout na requisição para WhatsApp API")
+                return {
+                    "success": False,
+                    "error": "Timeout na requisição para WhatsApp API",
+                    "phone_number": phone_number
+                }
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"🌐 Erro de rede: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"Erro de rede: {str(e)}",
+                    "phone_number": phone_number
+                }
+                
+            except Exception as e:
+                logger.error(f"💥 Erro inesperado: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"Erro inesperado: {str(e)}",
+                    "phone_number": phone_number
+                }
+
+
+        def main():
+            """
+            Função principal para teste e execução via linha de comando.
+            
+            Exemplo de uso:
+            python send_whatsapp_template.py --phone "+5581999887766" --name "João Silva"
+            """
+            import argparse
+            
+            parser = argparse.ArgumentParser(description='Enviar template de ativação WhatsApp')
+            parser.add_argument('--phone', required=True, help='Número de telefone do lead')
+            parser.add_argument('--name', required=True, help='Nome do lead')
+            parser.add_argument('--city', required=True, help='Cidade do lead')  # NEW PARAMETER
+            parser.add_argument('--phone-id', help='ID do número WhatsApp Business')
+            parser.add_argument('--template', default='welcome_profile_site', help='Nome do template')
+            
+            args = parser.parse_args()
+            
+            # Obtém phone_number_id do ambiente ou argumento
+            phone_number_id = args.phone_id or os.getenv('WHATSAPP_PHONE_NUMBER_ID')
+            
+            if not phone_number_id:
+                logger.error("WHATSAPP_PHONE_NUMBER_ID não encontrado")
+                sys.exit(1)
+            
+            # Envia template
+            result = send_activation_template(
+                phone_number=args.phone,
+                lead_name=args.name,
+                lead_city=args.city,  # NEW PARAMETER
+                phone_number_id=phone_number_id,
+                template_name=args.template
+            )
+            
+            # Exibe resultado
+            if result['success']:
+                print(f"✅ Template enviado com sucesso!")
+                print(f"📱 Phone: {result['phone_number']}")
+                print(f"📧 Message ID: {result['message_id']}")
+            else:
+                print(f"❌ Erro ao enviar template:")
+                print(f"📱 Phone: {result['phone_number']}")
+                print(f"💥 Erro: {result['error']}")
+                sys.exit(1)
+
+
+        if __name__ == "__main__":
+            main()
+    
+    beforeCommands:
+      - pip install kestra python-dotenv requests
+    
+    env:
+      WHATSAPP_API_TOKEN:       "{{ secret('WHATSAPP_API_TOKEN') }}"
+      WHATSAPP_PHONE_NUMBER_ID: "{{ envs.whatsapp_phone_number_id }}"
+      
+    script: |
+      from kestra import Kestra
+      from scripts.send_whatsapp_template import send_activation_template
+
+      lead_data = {
+          "name":          "{{ trigger.body.name }}",
+          "whatsapp":      "{{ trigger.body.whatsapp }}"
+      }
+
+      result = send_activation_template(
+          phone_number    = lead_data["whatsapp"],
+          lead_name       = lead_data["name"],
+          lead_city       = "{{ trigger.body.cidade }}",  # NEW PARAMETER
+          phone_number_id = "{{ envs.whatsapp_phone_number_id }}",
+          template_name   = "{{ vars.template_name }}"
+      )
+
+      Kestra.outputs({
+          "template_sent":       result.get("success", False),
+          "whatsapp_message_id": result.get("message_id", "N/A"),
+          "lead_phone":          lead_data["whatsapp"]
+      })
+
+  # Tarefa 2: Log de sucesso
+  - id: log-activation-success
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra sucesso do envio do template de ativação"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent == true }}"
+    message: |
+      ✅ TEMPLATE DE ATIVAÇÃO ENVIADO COM SUCESSO
+      ================================================
+      Lead: {{ trigger.body.name }}
+      Email: {{ trigger.body.email }}
+      WhatsApp: {{ trigger.body.whatsapp }}
+      Estado: {{ trigger.body.estado }}
+      Cidade: {{ trigger.body.cidade }}
+      Valor da Conta: R$ {{ trigger.body.account_value }}
+      Message ID: {{ outputs['send-whatsapp-template'].vars.whatsapp_message_id }}
+      Timestamp: {{ execution.startDate }}
+
+      O lead deve receber o template e clicar em "Ativar Perfil" para iniciar a conversa com IA.
+
+  # Tarefa 3: Log de erro (se houver falha)
+  - id: log-activation-error
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra erro no envio do template"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent != true }}"
+    level: ERROR
+    message: |
+      ❌ ERRO NO ENVIO DO TEMPLATE DE ATIVAÇÃO
+      ==========================================
+      Lead: {{ trigger.body.name }}
+      WhatsApp: {{ trigger.body.whatsapp }}
+      Estado: {{ trigger.body.estado }}
+      Cidade: {{ trigger.body.cidade }}
+      Erro: Falha ao enviar template de ativação
+      Timestamp: {{ execution.startDate }}
+
+      Verificar logs do serviço WhatsApp e configurações do template.

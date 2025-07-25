@@ -187,6 +187,12 @@ def extract_whatsapp_message(webhook_data: Dict[str, Any], trace_id: str = "") -
         logger.info(f"[TRACE {trace_id}] 📱 Mensagem final extraída para {phone_number}: '{message_text[:100]}'", extra={"trace_id": trace_id})
         logger.info(f"[TRACE {trace_id}] 📱 Media ID extraído: '{media_id}', Tipo: '{message_type}'", extra={"trace_id": trace_id})
         
+        # Debug: verificar se o media_id está sendo extraído corretamente
+        if message_type == 'image':
+            logger.info(f"[TRACE {trace_id}] 🔍 DEBUG IMAGEM - media_id extraído: '{media_id}'", extra={"trace_id": trace_id})
+            if not media_id:
+                logger.error(f"[TRACE {trace_id}] ❌ ERRO: media_id vazio para imagem!", extra={"trace_id": trace_id})
+        
         return WhatsAppMessage(
             phone=phone_number,
             message=message_text,
