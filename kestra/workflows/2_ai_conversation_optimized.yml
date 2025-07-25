@@ -30,13 +30,58 @@ tasks:
       Message: {{ trigger.body.message ?? 'Teste manual' }} | 
       Timestamp: {{ now() }}
 
-  # FASE 2: VERIFICAÇÃO DE PRIMEIRO CONTATO
+  # FASE 2: EXTRAÇÃO DE MEDIA_ID
+  - id: extract_media_id
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Extrai o media_id do payload WhatsApp para o contexto"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+      networkMode: coolify
+    script: |
+      import json
+      import os
+      from kestra import Kestra
+      
+      # Log do payload completo para debug
+      payload = {{ trigger.body | toJson }}
+      print(f"[DEBUG] Payload completo: {json.dumps(payload, indent=2)}")
+      
+      media_id = ""
+      
+      # Método 1: media_id direto no payload
+      if 'media_id' in payload:
+          media_id = payload['media_id']
+          print(f"[DEBUG] Media ID encontrado direto: {media_id}")
+      
+      # Método 2: media_id dentro de messages[0].image.id
+      elif 'messages' in payload and len(payload['messages']) > 0:
+          message = payload['messages'][0]
+          if 'image' in message and 'id' in message['image']:
+              media_id = message['image']['id']
+              print(f"[DEBUG] Media ID encontrado em messages[0].image.id: {media_id}")
+      
+      # Método 3: media_id dentro de entry[0].changes[0].value.messages[0].image.id
+      elif 'entry' in payload and len(payload['entry']) > 0:
+          entry = payload['entry'][0]
+          if 'changes' in entry and len(entry['changes']) > 0:
+              change = entry['changes'][0]
+              if 'value' in change and 'messages' in change['value'] and len(change['value']['messages']) > 0:
+                  message = change['value']['messages'][0]
+                  if 'image' in message and 'id' in message['image']:
+                      media_id = message['image']['id']
+                      print(f"[DEBUG] Media ID encontrado em entry.changes.value.messages[0].image.id: {media_id}")
+      
+      print(f"[DEBUG] Media ID final extraído: '{media_id}'")
+      Kestra.outputs({'media_id': media_id})
+
+  # FASE 3: VERIFICAÇÃO DE PRIMEIRO CONTATO
   - id: check_first_contact
     type: io.kestra.plugin.core.kv.Get
     key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
     allowFailure: true
     
-  # FASE 3: PROCESSAMENTO IA (MODIFICADA)
+  # FASE 4: PROCESSAMENTO IA (MODIFICADA)
   - id: ai_agent_processing
     type: io.kestra.plugin.scripts.python.Script
     description: "Processamento principal do agente IA com entrada direta do webhook"
@@ -52,7 +97,7 @@ tasks:
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
       MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
-      MEDIA_ID: "{{ trigger.body.media_id | default('') }}"
+      MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id | default('') }}"
       REDIS_URL: "{{ vars.redis_url }}"
       PYTHONPATH: "/app"
     inputFiles:
@@ -84,6 +129,13 @@ tasks:
           user_message = os.environ.get('USER_MESSAGE')
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
           media_id = os.environ.get('MEDIA_ID', '')
+          
+          # Log detalhado para debug
+          logger.info(f"[DEBUG] MEDIA_ID do ENV: '{media_id}'")
+          logger.info(f"[DEBUG] MESSAGE_TYPE do ENV: '{message_type}'")
+          logger.info(f"[DEBUG] PHONE_NUMBER do ENV: '{phone_number}'")
+          logger.info(f"[DEBUG] USER_MESSAGE do ENV: '{user_message[:100]}...'")
+          
           logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}... (type={message_type}, media_id={media_id})")
           result = handle_agent_invocation(phone_number, user_message, message_type=message_type, media_id=media_id)
           response = result.get('response', 'Desculpe, ocorreu um erro interno.')
@@ -94,14 +146,14 @@ tasks:
           fallback_response = "Olá! Sou a Sílvia da Serena Energia. 😊 No momento estou com dificuldades técnicas. Por favor, tente novamente em alguns minutos ou entre em contato conosco pelo nosso canal oficial. Obrigada pela compreensão!"
           Kestra.outputs({'response': fallback_response})
 
-  # FASE 4: PERSISTÊNCIA
+  # FASE 5: PERSISTÊNCIA
   - id: mark_first_contact
     type: io.kestra.plugin.core.kv.Set
     key: "first_contact_{{ trigger.body.phone ?? '5511999999999' }}"
     value: "{{ now() }}"
     runIf: "{{ outputs.check_first_contact.value == null }}"
 
-  # FASE 5: ENVIO WHATSAPP (ESTRATÉGIA ROBUSTA)
+  # FASE 6: ENVIO WHATSAPP (ESTRATÉGIA ROBUSTA)
   - id: prepare_whatsapp_payload
     type: io.kestra.plugin.scripts.python.Script
     description: "Prepara o payload JSON para o WhatsApp de forma segura"
@@ -148,7 +200,7 @@ tasks:
     body: "{{ outputs.prepare_whatsapp_payload.vars.payload }}"
     allowFailure: true
 
-  # FASE 6: LOG FINAL
+  # FASE 7: LOG FINAL
   - id: final_logging
     type: io.kestra.plugin.core.log.Log
     message: |
