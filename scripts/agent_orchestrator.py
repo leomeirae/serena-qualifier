@@ -2,6 +2,8 @@ import os
 import argparse
 import json
 from dotenv import load_dotenv
+import requests
+import unicodedata
 
 # --- Importações Essenciais do LangChain ---
 from langchain_openai import ChatOpenAI
@@ -9,6 +11,7 @@ from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_message_histories import RedisChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
+from supabase import create_client
 
 # --- Importar Ferramentas Específicas do Agente ---
 from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
@@ -16,7 +19,42 @@ from scripts.agent_tools.serena_tools import (
     buscar_planos_de_energia_por_localizacao,
     analisar_conta_de_energia_de_imagem,
 )
-from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead
+from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead, upload_energy_bill_image, generate_signed_url
+
+# Função incremental para obter o lead_id pelo telefone
+def get_lead_id_by_phone(phone_number: str) -> int | None:
+    """
+    Busca o id do lead na tabela leads pelo número de telefone.
+    Retorna o id se encontrado, ou None.
+    """
+    import psycopg2
+    import os
+    conn_string = os.getenv("DB_CONNECTION_STRING") or os.getenv("SECRET_DB_CONNECTION_STRING")
+    if not conn_string:
+        return None
+    try:
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM leads WHERE phone_number = %s", (phone_number,))
+                result = cur.fetchone()
+                if result:
+                    return result[0]
+    except Exception:
+        return None
+    return None
+
+def salvar_energy_bill(lead_id, phone, storage_path):
+    """
+    Salva o registro da conta de energia na tabela energy_bills do Supabase.
+    """
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    supabase.table("energy_bills").insert({
+        "lead_id": lead_id,
+        "phone": phone,
+        "image_path": storage_path
+    }).execute()
 
 # Carregar variáveis de ambiente (ex: OPENAI_API_KEY)
 load_dotenv()
@@ -40,6 +78,31 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 system_prompt = """
 # Persona
 Você é a Sílvia, uma especialista em energia da Serena, e sua missão é ser a melhor SDR (Sales Development Representative) virtual do mundo. Sua comunicação é clara, empática, amigável e, acima de tudo, humana. Você guia o lead por uma jornada, nunca despeja informações. Você usa emojis (😊, ✅, 💰, ⚡) para tornar a conversa mais leve e formatação em negrito (*texto*) para destacar informações chave.
+
+# Regras de Formatação para WhatsApp
+Sempre responda de forma fácil de ler no WhatsApp:
+- Use listas numeradas ou emojis para opções.
+- Sempre coloque uma linha em branco entre parágrafos e entre cada plano.
+- Use *negrito* para destacar descontos, vantagens e nomes de planos.
+- Não envie blocos longos de texto, quebre em frases e listas curtas.
+
+Exemplo de resposta:
+Claro, Leonardo! 😊 Aqui estão os detalhes dos planos disponíveis para você em Recife:
+
+1️⃣ *Plano Básico*
+- 14% de desconto
+- Sem fidelidade
+
+2️⃣ *Plano Intermediário*
+- 16% de desconto
+- 36 meses de fidelidade
+
+3️⃣ *Plano Premium*
+- 18% de desconto
+- 60 meses de fidelidade
+- 1ª fatura paga pela Serena
+
+Se precisar de mais informações ou quiser saber qual plano é o melhor para você, estou aqui para ajudar! 💰⚡
 
 # Contexto do Lead (Informações Recebidas)
 - **Nome do Lead**: {lead_name}
@@ -108,19 +171,85 @@ agent_with_chat_history = RunnableWithMessageHistory(
 
 # --- PASSO 3: Função Principal de Execução ---
 
-def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None, message_type: str = "text"):
+def format_for_whatsapp(text: str) -> str:
     """
-    Recebe a mensagem limpa do usuário, prepara a entrada e invoca o agente com memória.
-    message_type: tipo da mensagem (ex: 'text', 'button')
+    Formata o texto para ótima leitura no WhatsApp:
+    - Quebra entre cada plano
+    - Quebra de linha entre cada tópico dentro do plano
+    - Remove quebras desnecessárias
+    """
+    import re
+    # 1. Adiciona uma quebra dupla antes de cada plano (identifica emojis ou números seguidos de *Plano)
+    text = re.sub(r'(\d+️⃣|\d️⃣|[1-9]️⃣|\d\.|\d+\.|[1-9]\.)\s?(\*Plano)', r'\n\n\1 \2', text)
+    # 2. Quebra de linha antes de cada "- "
+    text = re.sub(r'(\n)?- ', r'\n- ', text)
+    # 3. Remove quebras de linha múltiplas excessivas (deixa só duas)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # 4. Tira espaços/linhas em branco no início/fim
+    text = text.strip()
+    return text
+
+def is_valid_image_url(url: str) -> bool:
+    """
+    Valida se a URL recebida é uma URL HTTP(s) real e não um placeholder.
+    """
+    return bool(url and isinstance(url, str) and url.startswith("http"))
+
+def clean_for_whatsapp(text: str) -> str:
+    text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII')
+    return text
+
+def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None, message_type: str = "text", clean_text: bool = False):
+    """
+    Parâmetro clean_text: se True, aplica limpeza de acentos/caracteres especiais na resposta final.
     """
     import logging
     logger = logging.getLogger(__name__)
-    
-    # Lógica de entrada diferenciada
-    if image_url:
-        input_data = f"O usuário {phone_number} enviou esta imagem para análise: {image_url}. Mensagem adicional: {user_message}"
+    storage_path = None  # Caminho da imagem no storage
+    signed_url = None   # URL segura para acesso à imagem
+    # --- Autodiagnóstico do pipeline ---
+    if image_url and not is_valid_image_url(image_url):
+        logger.error(f"[PIPELINE ERROR] URL de imagem inválida recebida: {image_url} | phone: {phone_number} | mensagem: {user_message}")
+        return {"response": "Houve uma falha ao receber a imagem enviada. O sistema não reconheceu a imagem corretamente. Por favor, tente enviar novamente ou envie uma mensagem de texto se preferir."}
+    # Lógica incremental para processar imagem recebida via WhatsApp
+    if image_url and is_valid_image_url(image_url):
+        whatsapp_token = os.getenv("WHATSAPP_API_TOKEN")
+        lead_id = get_lead_id_by_phone(phone_number)
+        if not lead_id:
+            logger.error(f"[PIPELINE ERROR] Lead não encontrado para o telefone: {phone_number}")
+            return {"response": "Não consegui identificar seu cadastro. Por favor, envie seu nome e cidade para continuar."}
+        try:
+            # Download da imagem com timeout
+            try:
+                headers = {"Authorization": f"Bearer {whatsapp_token}"}
+                response = requests.get(image_url, headers=headers, timeout=10)
+                if response.status_code != 200:
+                    logger.error(f"[PIPELINE ERROR] Falha no download da imagem. Status: {response.status_code} | URL: {image_url}")
+                    return {"response": "Houve uma falha ao baixar a imagem enviada. Por favor, tente novamente."}
+            except Exception as e:
+                logger.error(f"[PIPELINE ERROR] Exceção no download da imagem: {str(e)} | URL: {image_url}")
+                return {"response": "Houve uma falha ao baixar a imagem enviada. Por favor, tente novamente."}
+            # Upload para Supabase
+            local_file_path = f"/tmp/{lead_id}_{phone_number}.jpg"
+            with open(local_file_path, "wb") as f:
+                f.write(response.content)
+            try:
+                storage_path = upload_energy_bill_image(local_file_path, lead_id, phone_number)
+            except Exception as e:
+                logger.error(f"[PIPELINE ERROR] Falha no upload para Supabase: {str(e)} | phone: {phone_number}")
+                return {"response": "Houve uma falha ao salvar a imagem. Por favor, tente novamente."}
+            # Geração de signed URL
+            try:
+                signed_url = generate_signed_url(storage_path)
+            except Exception as e:
+                logger.error(f"[PIPELINE ERROR] Falha ao gerar signed URL: {str(e)} | storage_path: {storage_path}")
+                return {"response": "Houve uma falha ao gerar o acesso à imagem. Por favor, tente novamente."}
+            salvar_energy_bill(lead_id, phone_number, storage_path)
+            input_data = f"O usuário {phone_number} enviou uma conta de energia. URL segura: {signed_url}"
+        except Exception as e:
+            logger.error(f"[PIPELINE ERROR] Exceção inesperada: {str(e)} | URL: {image_url} | phone: {phone_number}")
+            return {"response": f"Houve um erro ao processar a imagem enviada. Por favor, tente novamente. Erro: {str(e)}"}
     elif message_type == "button":
-        # Inclua o telefone no contexto para o agente
         input_data = f"[BOTÃO] {user_message} (Usuário: {phone_number})"
     else:
         input_data = user_message
@@ -149,10 +278,14 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
         )
         
         output = response.get("output", "Não consegui processar sua solicitação.")
-        return {"response": output}
+        output = format_for_whatsapp(output)
+        if clean_text:
+            output = clean_for_whatsapp(output)
+        chat_history = get_session_history(phone_number).messages
+        return {"response": output, "history": chat_history}
     except Exception as e:
-        logger.error(f"❌ Erro ao invocar agente para {phone_number}: {str(e)}")
-        return {"response": f"Desculpe, tive um problema técnico. Por favor, tente novamente. Erro: {str(e)}"}
+        logger.error(f"[PIPELINE ERROR] Exceção ao executar agente: {str(e)} | phone: {phone_number}")
+        return {"response": f"Houve um erro ao processar sua solicitação. Por favor, tente novamente. Erro: {str(e)}"}
 
 
 # --- PASSO 4: Ponto de Entrada para o Script (para testes) ---
@@ -165,12 +298,13 @@ if __name__ == '__main__':
     parser.add_argument('--lead_name', type=str, default="", help='Nome do lead (opcional).')
     parser.add_argument('--image_url', type=str, help='URL da imagem (opcional).')
     parser.add_argument('--message_type', type=str, default="text", help='Tipo da mensagem (ex: text, button)')
+    parser.add_argument('--clean_text', action='store_true', help='Limpa o texto final da resposta para remover acentos e caracteres especiais.')
     
     args = parser.parse_args()
 
     # Executa a lógica do agente
     result = handle_agent_invocation(
-        args.phone_number, args.message, args.lead_city, args.lead_name, args.image_url, args.message_type
+        args.phone_number, args.message, args.lead_city, args.lead_name, args.image_url, args.message_type, args.clean_text
     )
     
     # Imprime o resultado final em formato JSON para ser consumido pelo Kestra

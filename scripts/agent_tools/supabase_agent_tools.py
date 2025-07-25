@@ -5,6 +5,7 @@ import re
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from scripts.lead_data_utils import get_lead_additional_data, update_lead_additional_data
+from supabase import create_client
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -157,3 +158,35 @@ def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
         return f"Erro ao interagir com o banco de dados: {e}"
     except Exception as e:
         return f"Ocorreu um erro inesperado: {e}" 
+
+# Função incremental para upload de imagem ao Supabase Storage (bucket privado)
+def upload_energy_bill_image(local_file_path: str, lead_id: int, phone: str) -> str:
+    """
+    Faz upload de uma imagem para o bucket privado 'energy-bills' no Supabase Storage.
+    Retorna o caminho (storage_path) salvo no banco.
+    """
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    bucket_name = "energy-bills"
+    storage_path = f"{lead_id}_{phone}.jpg"
+    with open(local_file_path, "rb") as f:
+        supabase.storage.from_(bucket_name).upload(storage_path, f)
+    return storage_path
+
+# Função incremental para gerar signed URL para imagem privada
+def generate_signed_url(storage_path: str, expires_in: int = 3600) -> str:
+    """
+    Gera uma URL temporária (signed URL) para acessar uma imagem privada no Supabase Storage.
+    expires_in: tempo de validade em segundos (padrão: 1 hora)
+    """
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    bucket_name = "energy-bills"
+    signed_url = supabase.storage.from_(bucket_name).create_signed_url(storage_path, expires_in)
+    return signed_url['signedURL'] if isinstance(signed_url, dict) and 'signedURL' in signed_url else signed_url 
