@@ -11,11 +11,6 @@ x-kestra-config: &kestra-config
         username: kestra
         password: kestra123
     kestra:
-      server:
-        basicAuth:
-          enabled: true
-          username: leonardo@darwinai.com.br
-          password: "@Atjlc151523"
       repository:
         type: postgres
       storage:
@@ -121,7 +116,7 @@ services:
     restart: unless-stopped
 
   kestra:
-    image: kestra/kestra:latest
+    image: kestra/kestra:v0.21.19
     user: root
     command: ["server", "standalone"]
     volumes:
@@ -157,6 +152,10 @@ services:
       # Configuração do Redis para workflows
       REDIS_URL: "redis://redis:6379/0"
       SECRET_REDIS_URL: "redis://redis:6379/0"
+      # Configuração de Basic Auth
+      KESTRA_SERVER_BASICAUTH_ENABLED: "true"
+      KESTRA_SERVER_BASICAUTH_USERNAME: "leonardo@darwinai.com.br"
+      KESTRA_SERVER_BASICAUTH_PASSWORD: "@Atjlc151523"
     depends_on:
       postgres:
         condition: service_started
