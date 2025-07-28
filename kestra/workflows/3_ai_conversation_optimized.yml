@@ -106,6 +106,8 @@ tasks:
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
 
       # ☁️ Supabase (decodificado via Python)
+      SECRET_SUPABASE_URL: "{{ secret('SECRET_SUPABASE_URL') }}"
+      SECRET_SUPABASE_KEY: "{{ secret('SECRET_SUPABASE_KEY') }}"
       # SUPABASE_URL e SUPABASE_KEY são decodificados automaticamente no Python
 
       # 🌐 Serviços Internos
