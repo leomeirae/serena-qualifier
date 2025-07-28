@@ -117,8 +117,6 @@ tasks:
 
       # ☁️ Supabase (conexão PostgreSQL conforme documentação Kestra)
       SUPABASE_DB_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password={{secret('SUPABASE_PASSWORD')}}"
-      SUPABASE_URL: "{{secret('SECRET_SUPABASE_URL')}}"
-      SUPABASE_KEY: "{{secret('SECRET_SUPABASE_KEY')}}"
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"

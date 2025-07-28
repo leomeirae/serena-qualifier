@@ -6,7 +6,7 @@ import base64
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from scripts.lead_data_utils import get_lead_additional_data, update_lead_additional_data
-from supabase import create_client
+
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -21,12 +21,8 @@ def decode_base64_env(varname):
         print(f"[ERROR] Falha ao decodificar {varname}: {e}")
         return None
 
-# Configuração Supabase - prioriza Storage API, fallback para PostgreSQL direto
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# Para operações de banco de dados, usamos PostgreSQL direto via psycopg2
-# Para Storage API, usamos as variáveis acima
+# Configuração PostgreSQL - usando conexão direta via pluginDefaults
+# Todas as operações agora usam PostgreSQL direto via psycopg2
 
 @tool
 def consultar_dados_lead(phone_number: str) -> str:
@@ -177,42 +173,52 @@ def salvar_ou_atualizar_lead_silvia(dados_lead: str) -> str:
     except Exception as e:
         return f"Ocorreu um erro inesperado: {e}" 
 
-# Função incremental para upload de imagem ao Supabase Storage (bucket privado)
+# Função incremental para salvar imagem no PostgreSQL (BLOB)
 def upload_energy_bill_image(local_file_path: str, lead_id: int, phone: str) -> str:
     """
-    Faz upload de uma imagem para o bucket privado 'energy-bills' no Supabase Storage.
-    Retorna o caminho (storage_path) salvo no banco.
+    Salva uma imagem como BLOB no PostgreSQL.
+    Retorna o ID do registro salvo no banco.
     """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    bucket_name = "energy-bills"
-    storage_path = f"{lead_id}_{phone}.jpg"
-    with open(local_file_path, "rb") as f:
-        supabase.storage.from_(bucket_name).upload(storage_path, f)
-    return storage_path
+    import psycopg2
+    
+    conn_string = os.getenv("DB_CONNECTION_STRING") or os.getenv("SECRET_DB_CONNECTION_STRING")
+    if not conn_string:
+        raise Exception("DB_CONNECTION_STRING não configurado nas variáveis de ambiente.")
+    
+    try:
+        with open(local_file_path, "rb") as f:
+            image_data = f.read()
+        
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO energy_bill_images (lead_id, phone_number, image_data, file_name, created_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    RETURNING id
+                """, (lead_id, phone, image_data, f"{lead_id}_{phone}.jpg"))
+                
+                image_id = cur.fetchone()[0]
+                return str(image_id)
+                
+    except Exception as e:
+        raise Exception(f"Erro ao salvar imagem no PostgreSQL: {str(e)}")
 
-# Função incremental para gerar signed URL para imagem privada
-def generate_signed_url(storage_path: str, expires_in: int = 3600) -> str:
+# Função incremental para gerar referência à imagem no PostgreSQL
+def generate_signed_url(image_id: str, expires_in: int = 3600) -> str:
     """
-    Gera uma URL temporária (signed URL) para acessar uma imagem privada no Supabase Storage.
-    expires_in: tempo de validade em segundos (padrão: 1 hora)
+    Gera uma referência à imagem salva no PostgreSQL.
+    Retorna uma string de referência para uso interno.
     """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    bucket_name = "energy-bills"
-    signed_url = supabase.storage.from_(bucket_name).create_signed_url(storage_path, expires_in)
-    return signed_url['signedURL'] if isinstance(signed_url, dict) and 'signedURL' in signed_url else signed_url 
+    return f"postgresql_image_{image_id}" 
 
-def save_image_metadata(wamid: str, sender_phone: str, storage_path: str, lead_id: int, caption: str = None, file_size_kb: int = None, mime_type: str = "image/jpeg"):
+def save_image_metadata(wamid: str, sender_phone: str, image_id: str, lead_id: int, caption: str = None, file_size_kb: int = None, mime_type: str = "image/jpeg"):
     """
-    Salva metadados da imagem na tabela image_metadata.
+    Salva metadados da imagem na tabela image_metadata usando PostgreSQL.
     
     Args:
         wamid: ID único da mensagem do WhatsApp
         sender_phone: Número de telefone do remetente
-        storage_path: Caminho do arquivo no Supabase Storage
+        image_id: ID da imagem no PostgreSQL
         lead_id: ID do lead relacionado
         caption: Legenda original da imagem (opcional)
         file_size_kb: Tamanho do arquivo em KB (opcional)
@@ -221,36 +227,46 @@ def save_image_metadata(wamid: str, sender_phone: str, storage_path: str, lead_i
     Returns:
         dict: Dados do registro inserido
     """
+    import psycopg2
+    
+    conn_string = os.getenv("DB_CONNECTION_STRING") or os.getenv("SECRET_DB_CONNECTION_STRING")
+    if not conn_string:
+        logger.error("DB_CONNECTION_STRING não configurado")
+        return None
+    
     try:
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            logger.error("SUPABASE_URL ou SUPABASE_KEY não configurados")
-            return None
-            
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
-        metadata = {
-            "wamid": wamid,
-            "sender_phone": sender_phone,
-            "storage_path": storage_path,
-            "lead_id": lead_id,
-            "mime_type": mime_type,
-            "processing_status": "completed"
-        }
-        
-        if caption:
-            metadata["original_caption"] = caption
-        if file_size_kb:
-            metadata["file_size_kb"] = file_size_kb
-            
-        result = supabase.table("image_metadata").insert(metadata).execute()
-        
-        if result.data:
-            logger.info(f"Metadados salvos com sucesso para WAMID: {wamid}")
-            return result.data[0]
-        else:
-            logger.error(f"Falha ao salvar metadados para WAMID: {wamid}")
-            return None
-            
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO image_metadata (wamid, sender_phone, image_id, lead_id, mime_type, processing_status, original_caption, file_size_kb, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    RETURNING id, wamid, sender_phone, image_id, lead_id
+                """, (
+                    wamid, 
+                    sender_phone, 
+                    image_id, 
+                    lead_id, 
+                    mime_type, 
+                    "completed",
+                    caption,
+                    file_size_kb
+                ))
+                
+                result = cur.fetchone()
+                if result:
+                    metadata = {
+                        "id": result[0],
+                        "wamid": result[1],
+                        "sender_phone": result[2],
+                        "image_id": result[3],
+                        "lead_id": result[4]
+                    }
+                    logger.info(f"Metadados salvos com sucesso para WAMID: {wamid}")
+                    return metadata
+                else:
+                    logger.error(f"Falha ao salvar metadados para WAMID: {wamid}")
+                    return None
+                    
     except Exception as e:
         logger.error(f"Erro ao salvar metadados: {str(e)}")
         return None 

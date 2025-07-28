@@ -12,7 +12,7 @@ from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_message_histories import RedisChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from supabase import create_client
+
 
 # --- Importar Ferramentas Específicas do Agente ---
 from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
@@ -99,18 +99,25 @@ def get_lead_id_by_phone(phone_number: str) -> int | None:
         print(f"DEBUG: Erro ao buscar lead: {str(e)}")
         return None
 
-def salvar_energy_bill(lead_id, phone, storage_path):
+def salvar_energy_bill(lead_id, phone, image_id):
     """
-    Salva o registro da conta de energia na tabela energy_bills do Supabase.
+    Salva o registro da conta de energia na tabela energy_bills usando PostgreSQL.
     """
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    supabase.table("energy_bills").insert({
-        "lead_id": lead_id,
-        "phone": phone,
-        "image_path": storage_path
-    }).execute()
+    import psycopg2
+    
+    conn_string = os.getenv("DB_CONNECTION_STRING") or os.getenv("SECRET_DB_CONNECTION_STRING")
+    if not conn_string:
+        raise Exception("DB_CONNECTION_STRING não configurado nas variáveis de ambiente.")
+    
+    try:
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO energy_bills (lead_id, phone, image_id, created_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                """, (lead_id, phone, image_id))
+    except Exception as e:
+        raise Exception(f"Erro ao salvar energy_bill no PostgreSQL: {str(e)}")
 
 # Carregar variáveis de ambiente (ex: OPENAI_API_KEY)
 load_dotenv()
@@ -267,6 +274,9 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
     # Log inicial para debug
     logger.info(f"[DEBUG] handle_agent_invocation chamado com: message_type={message_type}, media_id={media_id}, user_message={user_message[:50]}...")
     
+    # Configuração do Supabase - usando PostgreSQL direto via pluginDefaults
+    logger.info("[DEBUG] Usando conexão PostgreSQL direta via pluginDefaults")
+    
     # --- PROCESSAMENTO DE IMAGEM DO WHATSAPP ---
     if message_type == "image" and media_id:
         logger.info(f"[WHATSAPP IMAGE] Processando imagem com media_id: {media_id} para {phone_number}")
@@ -326,21 +336,21 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
             
             logger.info(f"[WHATSAPP IMAGE] Imagem salva localmente, fazendo upload para Supabase...")
             
-            # 5. Upload para Supabase
-            storage_path = upload_energy_bill_image(local_file_path, lead_id, phone_number)
+            # 5. Salvar imagem no PostgreSQL
+            image_id = upload_energy_bill_image(local_file_path, lead_id, phone_number)
             
-            # 6. Gerar signed URL
-            signed_url = generate_signed_url(storage_path)
+            # 6. Gerar referência à imagem
+            signed_url = generate_signed_url(image_id)
             
             # 7. Salvar no banco
-            salvar_energy_bill(lead_id, phone_number, storage_path)
+            salvar_energy_bill(lead_id, phone_number, image_id)
             
             # 8. Salvar metadados na tabela image_metadata
             file_size_kb = len(image_bytes) // 1024
             save_image_metadata(
                 wamid=f"wamid_{media_id}",  # Gerar WAMID único
                 sender_phone=phone_number,
-                storage_path=storage_path,
+                image_id=image_id,
                 lead_id=lead_id,
                 file_size_kb=file_size_kb,
                 mime_type="image/jpeg"
@@ -385,17 +395,17 @@ def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str
             with open(local_file_path, "wb") as f:
                 f.write(response.content)
             try:
-                storage_path = upload_energy_bill_image(local_file_path, lead_id, phone_number)
+                image_id = upload_energy_bill_image(local_file_path, lead_id, phone_number)
             except Exception as e:
-                logger.error(f"[PIPELINE ERROR] Falha no upload para Supabase: {str(e)} | phone: {phone_number}")
+                logger.error(f"[PIPELINE ERROR] Falha ao salvar imagem no PostgreSQL: {str(e)} | phone: {phone_number}")
                 return {"response": "Houve uma falha ao salvar a imagem. Por favor, tente novamente."}
-            # Geração de signed URL
+            # Geração de referência à imagem
             try:
-                signed_url = generate_signed_url(storage_path)
+                signed_url = generate_signed_url(image_id)
             except Exception as e:
-                logger.error(f"[PIPELINE ERROR] Falha ao gerar signed URL: {str(e)} | storage_path: {storage_path}")
+                logger.error(f"[PIPELINE ERROR] Falha ao gerar referência à imagem: {str(e)} | image_id: {image_id}")
                 return {"response": "Houve uma falha ao gerar o acesso à imagem. Por favor, tente novamente."}
-            salvar_energy_bill(lead_id, phone_number, storage_path)
+            salvar_energy_bill(lead_id, phone_number, image_id)
             input_data = f"O usuário {phone_number} enviou uma conta de energia. URL segura: {signed_url}"
         except Exception as e:
             logger.error(f"[PIPELINE ERROR] Exceção inesperada: {str(e)} | URL: {image_url} | phone: {phone_number}")
