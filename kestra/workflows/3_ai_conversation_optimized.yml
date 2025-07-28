@@ -90,17 +90,27 @@ tasks:
       image: kestra-agent:latest
       networkMode: coolify
     env:
+      # 🔐 Chaves Secretas (API)
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
-      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
-      SUPABASE_URL: "{{ envs.SUPABASE_URL }}"
-      SUPABASE_KEY: "{{ envs.SUPABASE_KEY }}"
-      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+
+      # 🧠 Configuração da Mensagem
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
       MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
       MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id | default('') }}"
+
+      # 🔗 Banco de Dados (PostgreSQL direto)
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
+
+      # ☁️ Supabase (agora decodificado corretamente)
+      SUPABASE_URL: "{{ envs.secret_supabase_url | base64Decode }}"
+      SUPABASE_KEY: "{{ envs.secret_supabase_key | base64Decode }}"
+
+      # 🌐 Serviços Internos
+      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       REDIS_URL: "{{ vars.redis_url }}"
       PYTHONPATH: "/app"
     inputFiles:
