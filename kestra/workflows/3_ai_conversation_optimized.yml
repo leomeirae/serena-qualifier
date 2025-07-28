@@ -105,9 +105,8 @@ tasks:
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
 
-      # ☁️ Supabase (agora decodificado corretamente)
-      SUPABASE_URL: "{{ envs.secret_supabase_url | base64Decode }}"
-      SUPABASE_KEY: "{{ envs.secret_supabase_key | base64Decode }}"
+      # ☁️ Supabase (decodificado via Python)
+      # SUPABASE_URL e SUPABASE_KEY são decodificados automaticamente no Python
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"

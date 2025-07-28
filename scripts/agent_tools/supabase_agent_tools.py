@@ -2,6 +2,7 @@ import os
 import psycopg2
 import json
 import re
+import base64
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from scripts.lead_data_utils import get_lead_additional_data, update_lead_additional_data
@@ -9,6 +10,19 @@ from supabase import create_client
 
 # Carrega variáveis de ambiente
 load_dotenv()
+
+def decode_base64_env(varname):
+    val = os.getenv(varname)
+    if not val:
+        return None
+    try:
+        return base64.b64decode(val).decode("utf-8")
+    except Exception as e:
+        print(f"[ERROR] Falha ao decodificar {varname}: {e}")
+        return None
+
+SUPABASE_URL = decode_base64_env("SECRET_SUPABASE_URL")
+SUPABASE_KEY = decode_base64_env("SECRET_SUPABASE_KEY")
 
 @tool
 def consultar_dados_lead(phone_number: str) -> str:
@@ -165,8 +179,6 @@ def upload_energy_bill_image(local_file_path: str, lead_id: int, phone: str) -> 
     Faz upload de uma imagem para o bucket privado 'energy-bills' no Supabase Storage.
     Retorna o caminho (storage_path) salvo no banco.
     """
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -182,8 +194,6 @@ def generate_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     Gera uma URL temporária (signed URL) para acessar uma imagem privada no Supabase Storage.
     expires_in: tempo de validade em segundos (padrão: 1 hora)
     """
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("SUPABASE_URL ou SUPABASE_KEY não configurados nas variáveis de ambiente.")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -208,9 +218,6 @@ def save_image_metadata(wamid: str, sender_phone: str, storage_path: str, lead_i
         dict: Dados do registro inserido
     """
     try:
-        SUPABASE_URL = os.getenv("SUPABASE_URL")
-        SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-        
         if not SUPABASE_URL or not SUPABASE_KEY:
             logger.error("SUPABASE_URL ou SUPABASE_KEY não configurados")
             return None
