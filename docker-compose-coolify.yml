@@ -25,6 +25,8 @@ x-kestra-config: &kestra-config
       variables:
         # Configurações globais para workflows
         redis_url: "redis://redis:6379/0"
+      secret:
+        type: env
     micronaut:
       server:
         port: 8081

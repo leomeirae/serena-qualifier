@@ -33,10 +33,13 @@ tasks:
       Message: {{ trigger.body.message ?? 'Teste manual' }} | 
       Timestamp: {{ now() }}
 
-  # DEBUG: Verificação de segredos
-  - id: debug-segredo
+  # DEBUG: Verificação segura de variáveis de ambiente
+  - id: debug-envs
     type: io.kestra.plugin.core.log.Log
-    message: "🔐 Segredo SUPABASE_PASSWORD presente? {{ secret('SUPABASE_PASSWORD') is not empty }}"
+    message: |
+      🔐 KESTRA_SECRETS_SUPABASE_PASSWORD = {{ envs["KESTRA_SECRETS_SUPABASE_PASSWORD"] | default("não definido") }}
+      🔐 KESTRA_SECRETS_SUPABASE_DB_URL  = {{ envs["KESTRA_SECRETS_SUPABASE_DB_URL"]  | default("não definido") }}
+
 
   # FASE 2: EXTRAÇÃO DE MEDIA_ID
   - id: extract_media_id
