@@ -5,7 +5,8 @@ Upload Script Files to Kestra Namespace Files Storage
 This script uploads the required script files to the Kestra namespace files storage
 so they can be accessed by the AI conversation workflows using the read() function.
 
-Atualizado: Inclui o novo script extract_message_content.py para processamento de mensagens de botão.
+Atualizado: Inclui todos os scripts necessários para o workflow 3_ai_conversation_optimized.yml
+e scripts de suporte que podem ser usados indiretamente.
 """
 
 import os
@@ -73,10 +74,17 @@ def main():
         'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
         'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
         'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
+        'scripts/agent_tools/feedback_request.py': 'scripts/agent_tools/feedback_request.py',
         'scripts/serena_api.py': 'scripts/serena_api.py',
         'scripts/__init__.py': 'scripts/__init__.py',
         'scripts/agent_tools/__init__.py': 'scripts/agent_tools/__init__.py',
         'scripts/lead_data_utils.py': 'scripts/lead_data_utils.py',
+
+        # Scripts de suporte e utilitários (PODEM ser usados indiretamente)
+        'scripts/interaction_logger.py': 'scripts/interaction_logger.py',
+        'scripts/conversational_memory.py': 'scripts/conversational_memory.py',
+        'scripts/followup.py': 'scripts/followup.py',
+        'scripts/energy_bill_processor.py': 'scripts/energy_bill_processor.py',
 
         # Scripts de processamento (USADOS pelos workflows)
     }
