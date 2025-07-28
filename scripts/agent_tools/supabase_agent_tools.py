@@ -21,8 +21,10 @@ def decode_base64_env(varname):
         print(f"[ERROR] Falha ao decodificar {varname}: {e}")
         return None
 
-SUPABASE_URL = decode_base64_env("SECRET_SUPABASE_URL")
-SUPABASE_KEY = decode_base64_env("SECRET_SUPABASE_KEY")
+# As variáveis SUPABASE_URL e SUPABASE_KEY são configuradas no script principal
+# e já decodificadas automaticamente
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 @tool
 def consultar_dados_lead(phone_number: str) -> str:

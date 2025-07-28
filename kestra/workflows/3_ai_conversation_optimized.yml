@@ -105,10 +105,9 @@ tasks:
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
 
-      # ☁️ Supabase (decodificado via Python)
-      SECRET_SUPABASE_URL: "{{ secret('SECRET_SUPABASE_URL') }}"
-      SECRET_SUPABASE_KEY: "{{ secret('SECRET_SUPABASE_KEY') }}"
-      # SUPABASE_URL e SUPABASE_KEY são decodificados automaticamente no Python
+      # ☁️ Supabase (passado via env e decodificado no Python)
+      SECRET_SUPABASE_URL: "{{ envs.SECRET_SUPABASE_URL }}"
+      SECRET_SUPABASE_KEY: "{{ envs.SECRET_SUPABASE_KEY }}"
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
@@ -129,11 +128,30 @@ tasks:
       sys.path.insert(0, '/app')
       import os
       import logging
+      import base64
       from kestra import Kestra
       
       # Configurar logging
       logging.basicConfig(level=logging.INFO)
       logger = logging.getLogger(__name__)
+      
+      # Decodificação automática das variáveis Supabase (base64 → string)
+      secret_supabase_url = os.environ.get('SECRET_SUPABASE_URL')
+      secret_supabase_key = os.environ.get('SECRET_SUPABASE_KEY')
+      
+      if secret_supabase_url and secret_supabase_url.startswith("aHR0c"):
+          os.environ['SUPABASE_URL'] = base64.b64decode(secret_supabase_url).decode("utf-8")
+          logger.info("[DEBUG] SUPABASE_URL decodificado com sucesso")
+      else:
+          os.environ['SUPABASE_URL'] = secret_supabase_url or ""
+          logger.info("[DEBUG] SUPABASE_URL usado sem decodificação")
+      
+      if secret_supabase_key and secret_supabase_key.startswith("ZXlKa"):
+          os.environ['SUPABASE_KEY'] = base64.b64decode(secret_supabase_key).decode("utf-8")
+          logger.info("[DEBUG] SUPABASE_KEY decodificado com sucesso")
+      else:
+          os.environ['SUPABASE_KEY'] = secret_supabase_key or ""
+          logger.info("[DEBUG] SUPABASE_KEY usado sem decodificação")
       
       try:
           import warnings
