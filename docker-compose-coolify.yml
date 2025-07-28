@@ -8,8 +8,8 @@ x-kestra-config: &kestra-config
       postgres:
         url: jdbc:postgresql://postgres:5432/kestra
         driverClassName: org.postgresql.Driver
-        username: leonardo@darwinai.com.br
-        password: @Atjlc151523
+        username: kestra
+        password: kestra123
     kestra:
       repository:
         type: postgres
