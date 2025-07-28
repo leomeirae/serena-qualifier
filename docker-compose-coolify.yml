@@ -99,15 +99,19 @@ services:
       - ./requirements.txt:/app/requirements.txt
     environment:
       TZ: America/Sao_Paulo
+      # APIs principais
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
       SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
-      DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
-      REDIS_URL: "redis://redis:6379/0"
       WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
       WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
+      # Supabase (decodificado automaticamente)
       SUPABASE_URL: "${SECRET_SUPABASE_URL}"
       SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      # PostgreSQL
+      DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+      # Redis
+      REDIS_URL: "redis://redis:6379/0"
     networks:
       - coolify
     depends_on:
@@ -135,20 +139,24 @@ services:
       MICRONAUT_SERVER_PROXY_FORWARDED_HEADER: "X-Forwarded-For"
       # Referência para a imagem do agente
       KESTRA_AGENT_IMAGE: "kestra-agent:latest"
-      # Secrets para função secret() nos workflows
+      # Secrets para função secret() nos workflows (base64)
       SECRET_OPENAI_API_KEY: "${SECRET_OPENAI_API_KEY}"
       SECRET_WHATSAPP_API_TOKEN: "${SECRET_WHATSAPP_API_TOKEN}"
       SECRET_SERENA_API_TOKEN: "${SECRET_SERENA_API_TOKEN}"
       SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
       SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
       SECRET_DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
-      # Variáveis de environment para workflows
+      # Variáveis de environment para workflows (texto plano)
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
       WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
       SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
       SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+      # Variáveis adicionais do Coolify
+      CHATWOOT_WEBHOOK_URL: "${CHATWOOT_WEBHOOK_URL}"
+      WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET}"
+      WHATSAPP_BUSINESS_ID: "${WHATSAPP_BUSINESS_ID}"
       # Configuração do Redis para workflows
       REDIS_URL: "redis://redis:6379/0"
       SECRET_REDIS_URL: "redis://redis:6379/0"

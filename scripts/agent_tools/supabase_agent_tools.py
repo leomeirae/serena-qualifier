@@ -21,10 +21,12 @@ def decode_base64_env(varname):
         print(f"[ERROR] Falha ao decodificar {varname}: {e}")
         return None
 
-# As variáveis SUPABASE_URL e SUPABASE_KEY são configuradas no script principal
-# e já decodificadas automaticamente
+# Configuração Supabase - prioriza Storage API, fallback para PostgreSQL direto
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Para operações de banco de dados, usamos PostgreSQL direto via psycopg2
+# Para Storage API, usamos as variáveis acima
 
 @tool
 def consultar_dados_lead(phone_number: str) -> str:
