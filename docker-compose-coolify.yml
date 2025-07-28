@@ -13,6 +13,7 @@ x-kestra-config: &kestra-config
     kestra:
       server:
         basicAuth:
+          enabled: true
           username: leonardo@darwinai.com.br
           password: "@Atjlc151523"
       repository:
