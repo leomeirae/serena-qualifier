@@ -11,6 +11,10 @@ x-kestra-config: &kestra-config
         username: kestra
         password: kestra123
     kestra:
+      server:
+        basicAuth:
+          username: leonardo@darwinai.com.br
+          password: "@Atjlc151523"
       repository:
         type: postgres
       storage:
