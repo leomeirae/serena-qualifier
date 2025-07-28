@@ -1,6 +1,6 @@
 id: 3_ai_conversation_optimized
 namespace: serena.production
-description: "Fluxo Otimizado de Conversa IA - Production Ready"
+description: "Fluxo Otimizado de Conversa IA - Production Ready v2"
 
 triggers:
   - id: webhook_lead_message
@@ -94,8 +94,8 @@ tasks:
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SERENA_API_TOKEN: "{{ secret('SERENA_API_TOKEN') }}"
       WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
-      SUPABASE_URL: "{{ secret('SUPABASE_URL') }}"
-      SUPABASE_KEY: "{{ secret('SUPABASE_KEY') }}"
+      SUPABASE_URL: "{{ envs.SUPABASE_URL }}"
+      SUPABASE_KEY: "{{ envs.SUPABASE_KEY }}"
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
       USER_MESSAGE: "{{ trigger.body.message }}"
       PHONE_NUMBER: "{{ trigger.body.phone }}"
