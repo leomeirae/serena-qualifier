@@ -110,6 +110,8 @@ services:
       SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
       # PostgreSQL
       DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+      # Senha do Supabase para conexão direta
+      SUPABASE_PASSWORD: "@Atjlc151523"
       # Redis
       REDIS_URL: "redis://redis:6379/0"
     networks:
@@ -146,6 +148,8 @@ services:
       SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
       SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
       SECRET_DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+      # Senha do Supabase para pluginDefaults PostgreSQL
+      SUPABASE_PASSWORD: "@Atjlc151523"
       # Variáveis de environment para workflows (texto plano)
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"

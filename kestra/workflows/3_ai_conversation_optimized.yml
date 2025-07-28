@@ -6,7 +6,7 @@ pluginDefaults:
   - forced: true
     type: io.kestra.plugin.jdbc.postgresql
     values:
-      url: "{{secret('SECRET_DB_CONNECTION_STRING') | base64Decode}}"
+      url: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password={{secret('SUPABASE_PASSWORD')}}"
 
 triggers:
   - id: webhook_lead_message
@@ -116,9 +116,9 @@ tasks:
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
 
       # ☁️ Supabase (conexão PostgreSQL conforme documentação Kestra)
-      SUPABASE_DB_URL: "{{secret('SECRET_DB_CONNECTION_STRING') | base64Decode}}"
-      SUPABASE_URL: "{{secret('SECRET_SUPABASE_URL') | base64Decode}}"
-      SUPABASE_KEY: "{{secret('SECRET_SUPABASE_KEY') | base64Decode}}"
+      SUPABASE_DB_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password={{secret('SUPABASE_PASSWORD')}}"
+      SUPABASE_URL: "{{secret('SECRET_SUPABASE_URL')}}"
+      SUPABASE_KEY: "{{secret('SECRET_SUPABASE_KEY')}}"
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
@@ -146,11 +146,29 @@ tasks:
       logging.basicConfig(level=logging.INFO)
       logger = logging.getLogger(__name__)
       
-      # Configuração das variáveis Supabase (já decodificadas pelo Kestra)
+      # Configuração das variáveis Supabase (decodificação base64)
       supabase_url = os.environ.get('SUPABASE_URL')
       supabase_key = os.environ.get('SUPABASE_KEY')
       
+      # Decodificação base64 se necessário
+      if supabase_url and supabase_url.startswith("aHR0c"):
+          try:
+              supabase_url = base64.b64decode(supabase_url).decode("utf-8")
+              logger.info("[DEBUG] SUPABASE_URL decodificado com sucesso")
+          except Exception as e:
+              logger.error(f"[ERROR] Falha ao decodificar SUPABASE_URL: {e}")
+      
+      if supabase_key and supabase_key.startswith("ZXlKa"):
+          try:
+              supabase_key = base64.b64decode(supabase_key).decode("utf-8")
+              logger.info("[DEBUG] SUPABASE_KEY decodificado com sucesso")
+          except Exception as e:
+              logger.error(f"[ERROR] Falha ao decodificar SUPABASE_KEY: {e}")
+      
+      # Configura as variáveis para uso
       if supabase_url and supabase_key:
+          os.environ['SUPABASE_URL'] = supabase_url
+          os.environ['SUPABASE_KEY'] = supabase_key
           logger.info("[DEBUG] SUPABASE_URL e SUPABASE_KEY configurados para Storage API")
       else:
           logger.warning("[WARNING] SUPABASE_URL ou SUPABASE_KEY não encontrados - usando PostgreSQL direto")

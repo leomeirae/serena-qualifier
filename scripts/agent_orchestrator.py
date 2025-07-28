@@ -1,6 +1,7 @@
 import os
 import argparse
 import json
+import base64
 from dotenv import load_dotenv
 import requests
 import unicodedata
