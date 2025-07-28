@@ -2,12 +2,6 @@ id: 3_ai_conversation_optimized
 namespace: serena.production
 description: "Fluxo Otimizado de Conversa IA - Production Ready v2"
 
-pluginDefaults:
-  - forced: true
-    type: io.kestra.plugin.jdbc.postgresql
-    values:
-      url: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password={{secret('SUPABASE_PASSWORD')}}"
-
 triggers:
   - id: webhook_lead_message
     type: io.kestra.plugin.core.trigger.Webhook
@@ -27,9 +21,8 @@ variables:
   cache_ttl: "PT30M"
   context_size_limit: 102400
 
-  # 🔐 Segredos decodificados
-  secret_supabase_url: "{{ secret('SECRET_SUPABASE_URL') }}"
-  secret_supabase_key: "{{ secret('SECRET_SUPABASE_KEY') }}"
+  # 🔐 URL de conexão centralizada do Supabase/PostgreSQL
+  db_connection_string: "{{ secret('SUPABASE_DB_URL') }}"
 
 tasks:
   # FASE 1: VALIDAÇÃO E LOGGING
@@ -39,6 +32,11 @@ tasks:
       [TRIGGER] Webhook recebido - Phone: {{ trigger.body.phone ?? '5511999999999' }} | 
       Message: {{ trigger.body.message ?? 'Teste manual' }} | 
       Timestamp: {{ now() }}
+
+  # DEBUG: Verificação de segredos
+  - id: debug-segredo
+    type: io.kestra.plugin.core.log.Log
+    message: "🔐 Segredo SUPABASE_PASSWORD presente? {{ secret('SUPABASE_PASSWORD') is not empty }}"
 
   # FASE 2: EXTRAÇÃO DE MEDIA_ID
   - id: extract_media_id
@@ -111,12 +109,8 @@ tasks:
       MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
       MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id | default('') }}"
 
-      # 🔗 Banco de Dados (PostgreSQL direto)
-      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
-      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
-
-      # ☁️ Supabase (conexão PostgreSQL conforme documentação Kestra)
-      SUPABASE_DB_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password={{secret('SUPABASE_PASSWORD')}}"
+      # 🔗 Banco de Dados (PostgreSQL centralizado)
+      DB_CONNECTION_STRING: "{{ vars.db_connection_string }}"
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"

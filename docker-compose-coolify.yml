@@ -23,11 +23,8 @@ x-kestra-config: &kestra-config
         tmpDir:
           path: /tmp/kestra-wd/tmp
       variables:
-        env-vars-prefix: ""
         # Configurações globais para workflows
         redis_url: "redis://redis:6379/0"
-      secret:
-        type: env
     micronaut:
       server:
         port: 8081
@@ -110,8 +107,8 @@ services:
       SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
       # PostgreSQL
       DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
-      # Senha do Supabase para conexão direta
-      SUPABASE_PASSWORD: "@Atjlc151523"
+      # Senha do Supabase para conexão direta (usando prefixo padrão KESTRA_SECRETS_)
+      KESTRA_SECRETS_SUPABASE_PASSWORD: "@Atjlc151523"
       # Redis
       REDIS_URL: "redis://redis:6379/0"
     networks:
@@ -148,8 +145,10 @@ services:
       SECRET_SUPABASE_URL: "${SECRET_SUPABASE_URL}"
       SECRET_SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
       SECRET_DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
-      # Senha do Supabase para pluginDefaults PostgreSQL
-      SUPABASE_PASSWORD: "@Atjlc151523"
+      # Senha do Supabase para pluginDefaults PostgreSQL (usando prefixo padrão KESTRA_SECRETS_)
+      KESTRA_SECRETS_SUPABASE_PASSWORD: "@Atjlc151523"
+      # URL de conexão centralizada do Supabase/PostgreSQL (com senha já resolvida)
+      KESTRA_SECRETS_SUPABASE_DB_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password=@Atjlc151523"
       # Variáveis de environment para workflows (texto plano)
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
