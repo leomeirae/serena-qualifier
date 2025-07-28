@@ -21,6 +21,10 @@ variables:
   cache_ttl: "PT30M"
   context_size_limit: 102400
 
+  # 🔐 Segredos decodificados
+  secret_supabase_url: "{{ secret('SECRET_SUPABASE_URL') }}"
+  secret_supabase_key: "{{ secret('SECRET_SUPABASE_KEY') }}"
+
 tasks:
   # FASE 1: VALIDAÇÃO E LOGGING
   - id: validate_trigger
@@ -105,9 +109,9 @@ tasks:
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
       SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
 
-      # ☁️ Supabase (passado via env e decodificado no Python)
-      SECRET_SUPABASE_URL: "{{ envs.SECRET_SUPABASE_URL }}"
-      SECRET_SUPABASE_KEY: "{{ envs.SECRET_SUPABASE_KEY }}"
+      # ☁️ Supabase (passado via vars e decodificado no Python)
+      SECRET_SUPABASE_URL: "{{ vars.secret_supabase_url }}"
+      SECRET_SUPABASE_KEY: "{{ vars.secret_supabase_key }}"
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
