@@ -7,6 +7,8 @@ so they can be accessed by the AI conversation workflows using the read() functi
 
 Atualizado: Inclui todos os scripts necessários para o workflow 3_ai_conversation_optimized.yml
 e scripts de suporte que podem ser usados indiretamente.
+
+Última atualização: Refatoração de segredos KESTRA_SECRETS_* e centralização de conexão DB
 """
 
 import os
@@ -63,51 +65,94 @@ def main():
     kestra_url = "https://kestra.darwinai.com.br/api/v1"
     
     # Files to upload (local path -> namespace path)
-    # Arquivos necessários para os workflows de conversação IA
+    # Organizados por categoria e prioridade de uso
     files_to_upload = {
-        # Scripts Essenciais para Comunicação
-        'scripts/send_whatsapp_template.py': 'scripts/send_whatsapp_template.py',
-
-        # Scripts do Agente Sílvia (USADOS pelo workflow 3_ai_conversation_optimized.yml)
+        # ========================================
+        # SCRIPTS ESSENCIAIS PARA O WORKFLOW 3_ai_conversation_optimized.yml
+        # ========================================
+        
+        # Scripts do Agente Sílvia (USADOS DIRETAMENTE pelo workflow)
         'scripts/agent_orchestrator.py': 'scripts/agent_orchestrator.py',
         'scripts/agent_tools/knowledge_base_tool.py': 'scripts/agent_tools/knowledge_base_tool.py',
         'scripts/agent_tools/faq_data.py': 'scripts/agent_tools/faq_data.py',
         'scripts/agent_tools/serena_tools.py': 'scripts/agent_tools/serena_tools.py',
         'scripts/agent_tools/supabase_agent_tools.py': 'scripts/agent_tools/supabase_agent_tools.py',
-        'scripts/agent_tools/feedback_request.py': 'scripts/agent_tools/feedback_request.py',
         'scripts/serena_api.py': 'scripts/serena_api.py',
+        'scripts/lead_data_utils.py': 'scripts/lead_data_utils.py',
         'scripts/__init__.py': 'scripts/__init__.py',
         'scripts/agent_tools/__init__.py': 'scripts/agent_tools/__init__.py',
-        'scripts/lead_data_utils.py': 'scripts/lead_data_utils.py',
-
-        # Scripts de suporte e utilitários (PODEM ser usados indiretamente)
+        
+        # ========================================
+        # SCRIPTS DE COMUNICAÇÃO E INTEGRAÇÃO
+        # ========================================
+        
+        # Scripts Essenciais para Comunicação WhatsApp
+        'scripts/send_whatsapp_template.py': 'scripts/send_whatsapp_template.py',
+        'scripts/webhook_service.py': 'scripts/webhook_service.py',
+        
+        # ========================================
+        # SCRIPTS DE SUPORTE E UTILITÁRIOS
+        # ========================================
+        
+        # Scripts de suporte que podem ser usados indiretamente
         'scripts/interaction_logger.py': 'scripts/interaction_logger.py',
         'scripts/conversational_memory.py': 'scripts/conversational_memory.py',
         'scripts/followup.py': 'scripts/followup.py',
         'scripts/energy_bill_processor.py': 'scripts/energy_bill_processor.py',
-
-        # Scripts de processamento (USADOS pelos workflows)
+        'scripts/agent_tools/feedback_request.py': 'scripts/agent_tools/feedback_request.py',
+        
+        # ========================================
+        # SCRIPTS SQL E CONFIGURAÇÃO
+        # ========================================
+        
+        # Scripts SQL para criação de tabelas (útil para referência)
+        'scripts/create_image_metadata_table.sql': 'scripts/create_image_metadata_table.sql',
+        'scripts/remove_conversation_states.sql': 'scripts/remove_conversation_states.sql',
     }
     
     success_count = 0
     total_files = len(files_to_upload)
     
     logger.info(f"🚀 Starting upload of {total_files} files to Kestra namespace...")
+    logger.info(f"📁 Target namespace: serena.production")
+    logger.info(f"🌐 Kestra API URL: {kestra_url}")
+    
+    # Contadores por categoria
+    essential_count = 0
+    communication_count = 0
+    support_count = 0
+    sql_count = 0
     
     for local_path, namespace_path in files_to_upload.items():
         if os.path.exists(local_path):
             if upload_file_to_namespace(local_path, namespace_path, kestra_url):
                 success_count += 1
+                # Contar por categoria
+                if 'agent_orchestrator' in local_path or 'agent_tools' in local_path or 'serena_api' in local_path or 'lead_data_utils' in local_path:
+                    essential_count += 1
+                elif 'whatsapp' in local_path or 'webhook' in local_path:
+                    communication_count += 1
+                elif '.sql' in local_path:
+                    sql_count += 1
+                else:
+                    support_count += 1
         else:
             logger.warning(f"⚠️ File not found: {local_path}")
     
+    # Relatório detalhado
     logger.info(f"📊 Upload completed: {success_count}/{total_files} files uploaded successfully")
+    logger.info(f"   🔧 Essential scripts: {essential_count}")
+    logger.info(f"   📡 Communication scripts: {communication_count}")
+    logger.info(f"   🛠️ Support scripts: {support_count}")
+    logger.info(f"   🗄️ SQL scripts: {sql_count}")
     
     if success_count == total_files:
         logger.info("🎉 All necessary files are now in the Kestra namespace.")
+        logger.info("✅ The AI conversation workflow should work correctly.")
         return True
     else:
         logger.error("❌ Some files failed to upload. The agent may not work correctly.")
+        logger.error("🔍 Check the logs above for specific failures.")
         return False
 
 if __name__ == "__main__":
