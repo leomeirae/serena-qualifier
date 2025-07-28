@@ -116,7 +116,7 @@ services:
     restart: unless-stopped
 
   kestra:
-    image: kestra/kestra:v0.21.19
+    image: kestra/kestra:v0.23.7
     user: root
     command: ["server", "standalone"]
     volumes:
