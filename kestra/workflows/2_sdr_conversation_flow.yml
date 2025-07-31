@@ -85,6 +85,8 @@ tasks:
           
       except Exception as e:
           print(f"[ERROR] Erro ao extrair media_id: {str(e)}")
+          import traceback
+          print(f"[ERROR] Traceback: {traceback.format_exc()}")
           Kestra.outputs({
               'media_id': '',
               'phone': '',
@@ -96,7 +98,7 @@ tasks:
   # FASE 3: CLASSIFICAÇÃO DE MÍDIA (NOVO)
   - id: classify_media
     type: io.kestra.plugin.scripts.python.Script
-    description: "Classifica se a mensagem é imagem ou texto usando classify_media.py"
+    description: "Classifica se a mensagem é imagem ou texto"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
@@ -105,36 +107,50 @@ tasks:
       MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id }}"
       MESSAGE_TYPE: "{{ outputs.extract_media_id.vars.message_type }}"
       MESSAGE_TEXT: "{{ outputs.extract_media_id.vars.message_text }}"
-    inputFiles:
-      scripts/sdr/classify_media.py: "{{ read('scripts/sdr/classify_media.py') }}"
     script: |
       import os
       import json
       from kestra import Kestra
-      from scripts.sdr.classify_media import classify_media_content
       
       try:
           media_id = os.environ.get('MEDIA_ID', '')
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
           message_text = os.environ.get('MESSAGE_TEXT', '')
           
-          # Classificar mídia
-          result = classify_media_content(
-              media_id=media_id,
-              message_type=message_type,
-              message_text=message_text
-          )
+          print(f"[DEBUG] Classificando mídia: media_id={media_id}, type={message_type}")
+          
+          # Lógica simples de classificação
+          if not media_id or media_id.strip() == "":
+              is_image = False
+              confidence = 1.0
+              extracted_text = message_text
+          elif message_type == "image":
+              is_image = True
+              confidence = 0.9
+              extracted_text = ""
+          elif message_type == "text":
+              is_image = False
+              confidence = 1.0
+              extracted_text = message_text
+          else:
+              is_image = False
+              confidence = 0.8
+              extracted_text = message_text
+          
+          print(f"[DEBUG] Classificação: is_image={is_image}, confidence={confidence}")
           
           Kestra.outputs({
-              'is_image': result.get('is_image', False),
-              'confidence': result.get('confidence', 0.0),
-              'extracted_text': result.get('extracted_text', ''),
+              'is_image': is_image,
+              'confidence': confidence,
+              'extracted_text': extracted_text,
               'media_id': media_id,
               'message_type': message_type
           })
           
       except Exception as e:
           print(f"[ERROR] Erro na classificação de mídia: {str(e)}")
+          import traceback
+          print(f"[ERROR] Traceback: {traceback.format_exc()}")
           Kestra.outputs({
               'is_image': False,
               'confidence': 0.0,
