@@ -37,6 +37,8 @@ tasks:
       Message: {{ trigger.body.message ?? 'N/A' }}
       Message Type: {{ trigger.body.type ?? 'text' }}
       Timestamp: {{ now() }}
+      
+      [DEBUG] Workflow iniciado com sucesso!
 
   # FASE 2: EXTRAÇÃO DE MEDIA_ID
   - id: extract_media_id
