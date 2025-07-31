@@ -1,12 +1,12 @@
 # =============================================================================
-# SERENA SDR - AGENT TOOLS MODULE
+# SERENA SDR - UTILS MODULE
 # =============================================================================
 
 """
-Agent Tools Module
+Utils Module
 
-Este módulo contém todas as ferramentas utilizadas pelo agente conversacional.
-Cada ferramenta representa uma função específica que pode ser chamada via OpenAI Function Calling.
+Este módulo contém utilitários e helpers utilizados em todo o projeto.
+Inclui configurações, logging, clientes MCP e outras funcionalidades comuns.
 """
 
 __version__ = "1.0.0"
@@ -15,18 +15,20 @@ __version__ = "1.0.0"
 # IMPORTS
 # =============================================================================
 
-from .supabase_tools import SupabaseTools
-from .serena_tools import SerenaTools
-from .whatsapp_tools import WhatsAppTools
-from .ocr_tools import OCRTools
+from .config import SDRConfig
+from .logger import SDRLogger
+from .mcp_client import MCPClient
+# from .validators import Validators  # Módulo não implementado ainda
+# from .helpers import Helpers  # Módulo não implementado ainda
 
 # =============================================================================
 # EXPORTS
 # =============================================================================
 
 __all__ = [
-    "SupabaseTools",
-    "SerenaTools", 
-    "WhatsAppTools",
-    "OCRTools"
+    "Config",
+    "Logger",
+    "MCPClient",
+    "Validators",
+    "Helpers"
 ] 
