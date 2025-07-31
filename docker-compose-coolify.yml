@@ -97,6 +97,7 @@ services:
     image: kestra-agent:latest
     volumes:
       - ./scripts:/app/scripts
+      - ./serena-sdr/scripts:/app/scripts/sdr
       - ./requirements.txt:/app/requirements.txt
     environment:
       TZ: America/Sao_Paulo
@@ -115,10 +116,20 @@ services:
       KESTRA_SECRETS_SUPABASE_PASSWORD: "@Atjlc151523"
       # Redis
       REDIS_URL: "redis://redis:6379/0"
+      # MCP Servers URLs
+      SUPABASE_MCP_URL: "http://supabase-mcp-server:3000"
+      SERENA_MCP_URL: "http://serena-mcp-server:3002"
+      WHATSAPP_MCP_URL: "http://whatsapp-mcp-server:3003"
     networks:
       - coolify
     depends_on:
       redis:
+        condition: service_healthy
+      supabase-mcp-server:
+        condition: service_healthy
+      serena-mcp-server:
+        condition: service_healthy
+      whatsapp-mcp-server:
         condition: service_healthy
     restart: unless-stopped
 
@@ -180,6 +191,12 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      supabase-mcp-server:
+        condition: service_healthy
+      serena-mcp-server:
+        condition: service_healthy
+      whatsapp-mcp-server:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - coolify
@@ -213,6 +230,8 @@ services:
     depends_on:
       kestra:
         condition: service_healthy
+      whatsapp-mcp-server:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - coolify
@@ -234,6 +253,92 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.webhook.rule=Host(`kestrawebhook.darwinai.com.br`)"
       - "traefik.http.services.webhook.loadbalancer.server.port=8001"
+
+  # =============================================================================
+  # MCP SERVERS - SERENA SDR
+  # =============================================================================
+
+  supabase-mcp-server:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./config/mcp/supabase:/app
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Supabase Configuration
+      SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SUPABASE_ANON_KEY: "${SECRET_SUPABASE_KEY}"
+    networks:
+      - coolify
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: >
+      sh -c "
+        npm install &&
+        npm start
+      "
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  serena-mcp-server:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./config/mcp/serena:/app
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      # Serena API Configuration
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+    networks:
+      - coolify
+    restart: unless-stopped
+    command: >
+      sh -c "
+        npm install &&
+        npm start
+      "
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  whatsapp-mcp-server:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./config/mcp/whatsapp:/app
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+      # WhatsApp Configuration
+      WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
+      WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
+      WHATSAPP_BUSINESS_ACCOUNT_ID: "${WHATSAPP_BUSINESS_ACCOUNT_ID}"
+    networks:
+      - coolify
+    restart: unless-stopped
+    command: >
+      sh -c "
+        npm install &&
+        npm start
+      "
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3003/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   api-principal:
     image: python:3.11-slim

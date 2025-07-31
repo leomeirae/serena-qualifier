@@ -21,8 +21,8 @@ variables:
 
   # URLs dos MCP Servers
   supabase_mcp_url: "http://supabase-mcp-server:3000"
-  serena_mcp_url: "http://serena-mcp-server:3001"
-  whatsapp_mcp_url: "http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io"
+  serena_mcp_url: "http://serena-mcp-server:3002"
+  whatsapp_mcp_url: "http://whatsapp-mcp-server:3003"
 
 tasks:
   # FASE 1: LOG INICIAL E VALIDAÇÃO
@@ -86,11 +86,61 @@ tasks:
               'message_type': 'text'
           })
 
-  # FASE 3: BUSCAR DADOS DO LEAD NO SUPABASE
+  # FASE 3: CLASSIFICAÇÃO DE MÍDIA (NOVO)
+  - id: classify_media
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Classifica se a mensagem é imagem ou texto usando classify_media.py"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+      networkMode: coolify
+    env:
+      MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id }}"
+      MESSAGE_TYPE: "{{ outputs.extract_media_id.vars.message_type }}"
+      MESSAGE_TEXT: "{{ trigger.body.message ?? '' }}"
+    inputFiles:
+      scripts/sdr/classify_media.py: "{{ read('scripts/sdr/classify_media.py') }}"
+    script: |
+      import os
+      import json
+      from kestra import Kestra
+      from scripts.sdr.classify_media import classify_media_content
+      
+      try:
+          media_id = os.environ.get('MEDIA_ID', '')
+          message_type = os.environ.get('MESSAGE_TYPE', 'text')
+          message_text = os.environ.get('MESSAGE_TEXT', '')
+          
+          # Classificar mídia
+          result = classify_media_content(
+              media_id=media_id,
+              message_type=message_type,
+              message_text=message_text
+          )
+          
+          Kestra.outputs({
+              'is_image': result.get('is_image', False),
+              'confidence': result.get('confidence', 0.0),
+              'extracted_text': result.get('extracted_text', ''),
+              'media_id': media_id,
+              'message_type': message_type
+          })
+          
+      except Exception as e:
+          print(f"[ERROR] Erro na classificação de mídia: {str(e)}")
+          Kestra.outputs({
+              'is_image': False,
+              'confidence': 0.0,
+              'extracted_text': '',
+              'media_id': media_id,
+              'message_type': message_type
+          })
+
+  # FASE 4: BUSCAR DADOS DO LEAD NO SUPABASE
   - id: get_lead_data
     type: io.kestra.plugin.core.http.Request
     description: "Busca dados do lead no Supabase via MCP (JSON-RPC)"
-    uri: "{{ vars.SUPABASE_MCP_URL }}/mcp"
+    uri: "{{ vars.supabase_mcp_url }}/mcp"
     method: POST
     headers:
       Content-Type: "application/json"
@@ -108,7 +158,7 @@ tasks:
       }
     allowFailure: true
 
-  # FASE 4: PROCESSAMENTO DO AGENTE IA
+  # FASE 5: PROCESSAMENTO DO AGENTE IA
   - id: run_agent
     type: io.kestra.plugin.scripts.python.Script
     description: "Executa o agente conversacional com OpenAI Function Calling"
@@ -128,30 +178,32 @@ tasks:
       MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
       MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id | default('') }}"
       LEAD_ID: "{{ trigger.body.lead_id }}"
+      IS_IMAGE: "{{ outputs.classify_media.vars.is_image | default(false) }}"
+      EXTRACTED_TEXT: "{{ outputs.classify_media.vars.extracted_text | default('') }}"
 
       # 🔗 Dados do Lead (do Supabase)
       LEAD_DATA: "{{ outputs.get_lead_data.body | default('{}') }}"
 
       # 🌐 Serviços MCP
-      SUPABASE_MCP_URL: "{{ vars.SUPABASE_MCP_URL }}"
-      SERENA_MCP_URL: "{{ vars.SERENA_MCP_URL }}"
-      WHATSAPP_MCP_URL: "{{ vars.WHATSAPP_MCP_URL }}"
+      SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
+      SERENA_MCP_URL: "{{ vars.serena_mcp_url }}"
+      WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
 
       # ⚙️ Configurações IA
       AI_MODEL: "{{ vars.ai_model }}"
       MAX_TOKENS: "{{ vars.max_tokens }}"
       TEMPERATURE: "{{ vars.temperature }}"
     inputFiles:
-      scripts/ai_sdr_agent.py: "{{ read('scripts/ai_sdr_agent.py') }}"
-      scripts/agent_tools/__init__.py: "{{ read('scripts/agent_tools/__init__.py') }}"
-      scripts/agent_tools/supabase_tools.py: "{{ read('scripts/agent_tools/supabase_tools.py') }}"
-      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
-      scripts/agent_tools/whatsapp_tools.py: "{{ read('scripts/agent_tools/whatsapp_tools.py') }}"
-      scripts/agent_tools/ocr_tools.py: "{{ read('scripts/agent_tools/ocr_tools.py') }}"
-      scripts/utils/__init__.py: "{{ read('scripts/utils/__init__.py') }}"
-      scripts/utils/config.py: "{{ read('scripts/utils/config.py') }}"
-      scripts/utils/logger.py: "{{ read('scripts/utils/logger.py') }}"
-      scripts/utils/mcp_client.py: "{{ read('scripts/utils/mcp_client.py') }}"
+      scripts/sdr/ai_sdr_agent.py: "{{ read('scripts/sdr/ai_sdr_agent.py') }}"
+      scripts/sdr/agent_tools/__init__.py: "{{ read('scripts/sdr/agent_tools/__init__.py') }}"
+      scripts/sdr/agent_tools/supabase_tools.py: "{{ read('scripts/sdr/agent_tools/supabase_tools.py') }}"
+      scripts/sdr/agent_tools/serena_tools.py: "{{ read('scripts/sdr/agent_tools/serena_tools.py') }}"
+      scripts/sdr/agent_tools/whatsapp_tools.py: "{{ read('scripts/sdr/agent_tools/whatsapp_tools.py') }}"
+      scripts/sdr/agent_tools/ocr_tools.py: "{{ read('scripts/sdr/agent_tools/ocr_tools.py') }}"
+      scripts/sdr/utils/__init__.py: "{{ read('scripts/sdr/utils/__init__.py') }}"
+      scripts/sdr/utils/config.py: "{{ read('scripts/sdr/utils/config.py') }}"
+      scripts/sdr/utils/logger.py: "{{ read('scripts/sdr/utils/logger.py') }}"
+      scripts/sdr/utils/mcp_client.py: "{{ read('scripts/sdr/utils/mcp_client.py') }}"
     script: |
       import sys
       import os
@@ -165,7 +217,7 @@ tasks:
       
       try:
           # Importar o agente
-          from scripts.ai_sdr_agent import SerenaSDRAgent
+          from scripts.sdr.ai_sdr_agent import SerenaSDRAgent
           
           # Obter dados do ambiente
           phone_number = os.environ.get('PHONE_NUMBER')
@@ -173,12 +225,16 @@ tasks:
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
           media_id = os.environ.get('MEDIA_ID', '')
           lead_id = os.environ.get('LEAD_ID')
+          is_image = os.environ.get('IS_IMAGE', 'false').lower() == 'true'
+          extracted_text = os.environ.get('EXTRACTED_TEXT', '')
           lead_data = json.loads(os.environ.get('LEAD_DATA', '{}'))
           
           # Log detalhado para debug
           logger.info(f"[DEBUG] PHONE_NUMBER: '{phone_number}'")
           logger.info(f"[DEBUG] MESSAGE_TYPE: '{message_type}'")
           logger.info(f"[DEBUG] MEDIA_ID: '{media_id}'")
+          logger.info(f"[DEBUG] IS_IMAGE: '{is_image}'")
+          logger.info(f"[DEBUG] EXTRACTED_TEXT: '{extracted_text}'")
           logger.info(f"[DEBUG] LEAD_ID: '{lead_id}'")
           logger.info(f"[DEBUG] LEAD_DATA: {json.dumps(lead_data, indent=2)}")
           
@@ -192,6 +248,8 @@ tasks:
               user_message=user_message,
               message_type=message_type,
               media_id=media_id,
+              is_image=is_image,
+              extracted_text=extracted_text,
               lead_data=lead_data
           )
           
@@ -216,11 +274,11 @@ tasks:
               'phone_number': phone_number
           })
 
-  # FASE 5: ENVIO DA RESPOSTA VIA WHATSAPP
+  # FASE 6: ENVIO DA RESPOSTA VIA WHATSAPP
   - id: send_whatsapp_message
     type: io.kestra.plugin.core.http.Request
     description: "Envia resposta do agente via WhatsApp MCP (JSON-RPC)"
-    uri: "{{ vars.WHATSAPP_MCP_URL }}/mcp"
+    uri: "{{ vars.whatsapp_mcp_url }}/mcp"
     method: POST
     headers:
       Content-Type: "application/json"
@@ -239,7 +297,7 @@ tasks:
       }
     allowFailure: true
 
-  # FASE 6: LOG DE SUCESSO
+  # FASE 7: LOG DE SUCESSO
   - id: log_success
     type: io.kestra.plugin.core.log.Log
     description: "Registra sucesso do processamento"
@@ -250,11 +308,12 @@ tasks:
       Lead ID: {{ trigger.body.lead_id }}
       Phone: {{ trigger.body.phone }}
       Message: {{ trigger.body.message[:100] }}...
+      Is Image: {{ outputs.classify_media.vars.is_image }}
       Response Length: {{ outputs.run_agent.vars.response | length }} chars
       WhatsApp Status: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }}
       Timestamp: {{ now() }}
 
-  # FASE 7: WAIT 2 HORAS PARA FOLLOW-UP (CORRIGIDO)
+  # FASE 8: WAIT 2 HORAS PARA FOLLOW-UP
   - id: wait_2h
     type: io.kestra.plugin.scripts.python.Script
     description: "Aguarda 2 horas antes de verificar resposta"
@@ -283,7 +342,7 @@ tasks:
           'wait_duration': 'PT2H'
       })
 
-  # FASE 8: FOLLOW-UP APÓS 2 HORAS
+  # FASE 9: FOLLOW-UP APÓS 2 HORAS
   - id: follow_up_if_needed
     type: io.kestra.plugin.scripts.python.Script
     description: "Envia follow-up após 2 horas sem resposta"
@@ -297,11 +356,11 @@ tasks:
       PHONE_NUMBER: "{{ trigger.body.phone }}"
       LEAD_ID: "{{ trigger.body.lead_id }}"
       LEAD_DATA: "{{ outputs.get_lead_data.body | default('{}') }}"
-      SUPABASE_MCP_URL: "{{ vars.SUPABASE_MCP_URL }}"
-      SERENA_MCP_URL: "{{ vars.SERENA_MCP_URL }}"
-      WHATSAPP_MCP_URL: "{{ vars.WHATSAPP_MCP_URL }}"
+      SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
+      SERENA_MCP_URL: "{{ vars.serena_mcp_url }}"
+      WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
     inputFiles:
-      scripts/follow_up_agent.py: "{{ read('scripts/follow_up_agent.py') }}"
+      scripts/sdr/follow_up_agent.py: "{{ read('scripts/sdr/follow_up_agent.py') }}"
     script: |
       import os
       import json
@@ -312,7 +371,7 @@ tasks:
       logger = logging.getLogger(__name__)
       
       try:
-          from scripts.follow_up_agent import FollowUpAgent
+          from scripts.sdr.follow_up_agent import FollowUpAgent
           
           phone_number = os.environ.get('PHONE_NUMBER')
           lead_id = os.environ.get('LEAD_ID')
@@ -340,7 +399,7 @@ tasks:
               'error': str(e)
           })
 
-  # FASE 9: LOG FINAL
+  # FASE 10: LOG FINAL
   - id: log_final
     type: io.kestra.plugin.core.log.Log
     description: "Log final do workflow"
@@ -375,7 +434,7 @@ errors:
   - id: send_fallback_message
     type: io.kestra.plugin.core.http.Request
     description: "Envia mensagem de fallback em caso de erro"
-    uri: "{{ vars.WHATSAPP_MCP_URL }}/mcp"
+    uri: "{{ vars.whatsapp_mcp_url }}/mcp"
     method: POST
     headers:
       Content-Type: "application/json"
@@ -391,4 +450,4 @@ errors:
             "message": "Desculpe, tivemos um problema técnico. Retornarei em breve. 😊"
           }
         }
-      }
+      } 

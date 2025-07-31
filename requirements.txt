@@ -32,3 +32,38 @@ certifi==2024.7.4
 
 # Redis para memória persistente do agente
 redis
+
+# =============================================================================
+# SERENA SDR - DEPENDÊNCIAS ADICIONAIS
+# =============================================================================
+
+# Data Processing (SDR)
+pandas>=2.0.0
+
+# JSON and YAML (SDR)
+pyyaml>=6.0
+jsonschema>=4.19.0
+
+# Logging and Monitoring (SDR)
+structlog>=23.1.0
+
+# Environment and Configuration (SDR)
+pydantic-settings>=2.0.0
+
+# Async Support (SDR)
+asyncio-mqtt>=0.16.0
+aiohttp>=3.8.0
+
+# Testing (SDR)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+
+# Development Tools (SDR)
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Utilities (SDR)
+python-dateutil>=2.8.0
+pytz>=2023.3

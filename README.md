@@ -23,24 +23,41 @@ serena-qualifier/
 │   │   ├── faq_data.py           # Dados para RAG
 │   │   ├── serena_tools.py       # Ferramentas para API Serena
 │   │   └── supabase_agent_tools.py # Ferramentas para Supabase
+│   ├── sdr/                      # 🆕 Scripts SDR (Serena SDR)
+│   │   ├── ai_sdr_agent.py       # Agente IA conversacional SDR
+│   │   ├── classify_media.py     # Classificação de mídia (texto/imagem)
+│   │   ├── follow_up_agent.py    # Agente de follow-up automático
+│   │   ├── agent_tools/          # Ferramentas do agente SDR
+│   │   └── utils/                # Utilitários SDR
 │   ├── agent_orchestrator.py     # 🆕 Orquestrador principal LangChain
 │   ├── extract_message_content.py # 🆕 Processador de mensagens de botão
 │   ├── ai_conversation_handler.py # Manipulador de conversas
 │   ├── conversation_context.py   # Gerenciador de contexto
 │   ├── location_extractor.py     # Extrator de localização
 │   ├── serena_api.py             # ✅ API real Serena
-│   └── upload_namespace_files.py # Upload para Kestra
+│   ├── upload_namespace_files.py # Upload para Kestra
+│   └── verify_mcp_servers.py     # 🆕 Verificação de MCP servers
 ├── kestra/workflows/             # ✅ Workflows Kestra
 │   ├── 1_lead_activation_flow.yml # Ativação de leads
 │   ├── 2_ai_conversation_flow.yml # Conversa IA básica
-│   └── 3_ai_conversation_optimized.yml # 🆕 Conversa IA otimizada
+│   ├── 3_ai_conversation_optimized.yml # 🆕 Conversa IA otimizada
+│   └── 2_sdr_conversation_flow.yml # 🆕 Workflow SDR (Serena SDR)
+├── config/mcp/                   # 🆕 Configurações MCP Servers
+│   ├── supabase/                 # MCP Server Supabase
+│   ├── serena/                   # MCP Server Serena
+│   └── whatsapp/                 # MCP Server WhatsApp
 ├── tests/                        # 🆕 Testes automatizados
+│   ├── e2e/                      # 🆕 Testes end-to-end SDR
+│   │   ├── test_text_message_flow.py
+│   │   ├── test_energy_bill_ocr_flow.py
+│   │   ├── test_follow_up_flow.py
+│   │   └── test_fallback_and_metrics.py
 │   ├── test_button_message_type.py # Teste de botões
 │   ├── test_ativar_perfil_button.py # Teste botão Ativar Perfil
 │   └── test_lead_data_flow.py    # Teste fluxo de dados do lead
 ├── knowledge_base/               # 🆕 Base de conhecimento RAG
 │   └── faq_serena.txt            # FAQ sobre energia solar
-└── docker-compose.yml            # ✅ Stack completa
+└── docker-compose-coolify.yml    # ✅ Stack completa Coolify
 ```
 
 ## 🚀 Setup Rápido
@@ -141,6 +158,34 @@ O sistema agora inclui **RAG (Retrieval-Augmented Generation)** para responder d
 - **Sobre a Serena**: "Como a Serena funciona?", "Qual o processo de instalação?"
 - **Educacional**: Informações técnicas sobre energia fotovoltaica
 
+## 🤖 Serena SDR - Agente Virtual de Pré-vendas (NOVO)
+
+O sistema agora inclui o **Serena SDR** - um agente virtual inteligente para pré-vendas de energia solar:
+
+### 🎯 Funcionalidades Principais:
+- **Conversação Natural**: Agente IA conversacional (Sílvia) para pré-vendas
+- **Classificação de Mídia**: Detecta automaticamente texto vs. imagem
+- **OCR de Faturas**: Processamento inteligente de contas de energia
+- **Follow-up Automático**: Lembretes automáticos após 2 horas sem resposta
+- **Qualificação de Leads**: Validação automática baseada em critérios de consumo
+- **Integração MCP**: Comunicação via Model Context Protocol com serviços externos
+
+### 🔧 Arquitetura SDR:
+- **Workflow Principal**: `2_sdr_conversation_flow.yml` - Orquestração completa
+- **Agente IA**: `ai_sdr_agent.py` - Lógica conversacional principal
+- **Classificação**: `classify_media.py` - Detecção de tipo de mídia
+- **Follow-up**: `follow_up_agent.py` - Geração de lembretes automáticos
+- **MCP Servers**: Supabase, Serena API, WhatsApp Business API
+
+### 📱 Fluxo de Conversação:
+1. **Recebimento**: Webhook WhatsApp recebe mensagem
+2. **Classificação**: Sistema identifica se é texto ou imagem
+3. **Processamento**: 
+   - **Texto**: Conversação direta com IA
+   - **Imagem**: OCR + qualificação de fatura
+4. **Resposta**: Mensagem personalizada via WhatsApp
+5. **Follow-up**: Lembrete automático após 2h (se necessário)
+
 ## 🔍 Processamento Inteligente de Contas de Energia (NOVO)
 
 O sistema agora inclui **OCR avançado** para processamento automático de contas de energia:
@@ -172,6 +217,18 @@ pytest tests/test_rag_functionality.py -v
 
 # Testes de OCR inteligente
 pytest tests/test_ocr_structured_extraction.py -v
+
+# 🆕 Testes End-to-End SDR
+pytest tests/e2e/ -v
+
+# Testes específicos SDR
+pytest tests/e2e/test_text_message_flow.py -v
+pytest tests/e2e/test_energy_bill_ocr_flow.py -v
+pytest tests/e2e/test_follow_up_flow.py -v
+pytest tests/e2e/test_fallback_and_metrics.py -v
+
+# Verificação de MCP Servers
+python scripts/verify_mcp_servers.py
 ```
 
 ## 📊 SLAs de Performance e Latência
@@ -226,6 +283,111 @@ O sistema foi projetado e validado para atender rígidos acordos de nível de se
 - [`BUTTON_MESSAGE_TYPE_FIX.md`](BUTTON_MESSAGE_TYPE_FIX.md) - Correção para mensagens de botão (NOVO 🔘)
 - [`LEAD_DATA_FLOW_FIX.md`](LEAD_DATA_FLOW_FIX.md) - Otimização do fluxo de dados do lead (NOVO 🔄)
 
+## 🐳 Configuração Docker
+
+### 📦 Serviços Principais:
+- **postgres**: Banco de dados PostgreSQL
+- **redis**: Cache e filas
+- **kestra**: Orquestrador de workflows
+- **kestra-agent**: Agente Python com scripts SDR
+- **webhook-service**: Serviço de webhook WhatsApp
+- **api-principal**: API principal
+
+### 🔗 MCP Servers (Serena SDR):
+- **supabase-mcp-server**: Servidor MCP para Supabase (porta 3000)
+- **serena-mcp-server**: Servidor MCP para API Serena (porta 3002)
+- **whatsapp-mcp-server**: Servidor MCP para WhatsApp (porta 3003)
+
+### 🌐 Rede e Dependências:
+- Todos os serviços usam a rede `coolify`
+- Healthchecks configurados para todos os MCPs
+- Dependências configuradas com `depends_on` e `service_healthy`
+
+### 📁 Volumes Montados:
+- `./scripts:/app/scripts` - Scripts principais
+- `./serena-sdr/scripts:/app/scripts/sdr` - Scripts SDR
+- `./config/mcp/*:/app` - Configurações MCP
+
+### 🔄 Reimplantação no Coolify:
+
+#### 📋 Passo a Passo Completo:
+
+**1. Preparação do Repositório:**
+```bash
+# Commit das alterações
+git add .
+git commit -m "feat: Integração Serena SDR com MCP servers"
+git push origin main
+```
+
+**2. Atualização no Dashboard Coolify:**
+- Acessar o projeto no dashboard do Coolify
+- Verificar se o branch `main` foi atualizado automaticamente
+- Aguardar o build automático ou forçar rebuild
+
+**3. Configuração de Variáveis de Ambiente:**
+No painel do Coolify, verificar se todas as variáveis estão configuradas:
+```bash
+# APIs Principais
+OPENAI_API_KEY=sk-proj-...
+SERENA_API_TOKEN=eyJhbGciOiJIUzI1NiIsInR5...
+SERENA_API_BASE_URL=https://api.serena.com.br
+WHATSAPP_API_TOKEN=RUFBUFIwRkc1c3E4Qk85...
+WHATSAPP_PHONE_NUMBER_ID=123456789
+
+# Supabase
+SECRET_SUPABASE_URL=https://xxx.supabase.co
+SECRET_SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5...
+
+# Outras configurações
+WHATSAPP_VERIFY_TOKEN=serena_verify_token
+WHATSAPP_BUSINESS_ACCOUNT_ID=123456789
+```
+
+**4. Rebuild & Redeploy:**
+- Clicar em "Rebuild & Redeploy" no Coolify
+- Aguardar a conclusão do build (pode demorar 5-10 minutos)
+- Verificar se todos os serviços iniciaram corretamente
+
+**5. Validação Pós-Deploy:**
+```bash
+# Verificar status dos serviços
+docker-compose ps
+
+# Verificar logs dos MCPs
+docker-compose logs supabase-mcp-server
+docker-compose logs serena-mcp-server
+docker-compose logs whatsapp-mcp-server
+
+# Executar script de verificação
+python scripts/verify_mcp_servers.py
+
+# Testar workflows no Kestra UI
+# Acessar: https://kestra.darwinai.com.br
+# Verificar se o workflow "2_sdr_conversation_flow" está ativo
+```
+
+### 🔍 Verificação de Healthchecks dos MCPs:
+```bash
+# Verificar status dos MCPs
+docker-compose ps
+
+# Verificar logs dos MCPs
+docker-compose logs supabase-mcp-server
+docker-compose logs serena-mcp-server
+docker-compose logs whatsapp-mcp-server
+
+# Testar healthchecks diretamente
+curl http://localhost:3000/health  # Supabase MCP
+curl http://localhost:3002/health  # Serena MCP
+curl http://localhost:3003/health  # WhatsApp MCP
+
+# Verificar conectividade entre serviços
+docker-compose exec kestra-agent curl http://supabase-mcp-server:3000/health
+docker-compose exec kestra-agent curl http://serena-mcp-server:3002/health
+docker-compose exec kestra-agent curl http://whatsapp-mcp-server:3003/health
+```
+
 ## 🔧 Tecnologias
 
 - **Python 3.11+** - Backend principal
@@ -236,3 +398,4 @@ O sistema foi projetado e validado para atender rígidos acordos de nível de se
 - **Supabase** - Database PostgreSQL
 - **Docker** - Containerização
 - **Kestra** - Orquestração workflows
+- **Node.js 18** - MCP Servers

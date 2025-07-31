@@ -19,7 +19,7 @@ const server = new Server(
 const app = express();
 const port = process.env.PORT || 3002;
 
-app.get('/', (req, res) => {
+app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'serena-mcp' });
 });
 
