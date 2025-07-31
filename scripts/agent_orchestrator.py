@@ -22,6 +22,20 @@ from scripts.agent_tools.serena_tools import (
 )
 from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead, upload_energy_bill_image, generate_signed_url, save_image_metadata
 
+# --- Importar Ferramentas MCP Supabase ---
+try:
+    from scripts.agent_tools.mcp_supabase_integration import (
+        consultar_dados_lead_mcp,
+        salvar_ou_atualizar_lead_mcp,
+        listar_tabelas_mcp,
+        verificar_status_mcp,
+        mcp_client
+    )
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    print("MCP Supabase integration not available, using direct PostgreSQL connection")
+
 # Função incremental para obter o lead_id pelo telefone
 def get_lead_id_by_phone(phone_number: str) -> int | None:
     """
@@ -125,13 +139,27 @@ load_dotenv()
 # --- PASSO 1: Montagem do Agente "Sílvia" ---
 
 # 1.1 - Lista de ferramentas que o agente poderá usar.
-tools = [
-    consultar_dados_lead,
-    consultar_faq_serena,
-    buscar_planos_de_energia_por_localizacao,
-    analisar_conta_de_energia_de_imagem,
-    salvar_ou_atualizar_lead_silvia
-]
+# Usa ferramentas MCP se disponível, senão usa conexão direta
+if MCP_AVAILABLE:
+    tools = [
+        consultar_dados_lead_mcp,  # MCP version
+        consultar_faq_serena,
+        buscar_planos_de_energia_por_localizacao,
+        analisar_conta_de_energia_de_imagem,
+        salvar_ou_atualizar_lead_mcp,  # MCP version
+        listar_tabelas_mcp,  # Nova ferramenta MCP
+        verificar_status_mcp  # Nova ferramenta MCP
+    ]
+    print("Using MCP Supabase integration")
+else:
+    tools = [
+        consultar_dados_lead,
+        consultar_faq_serena,
+        buscar_planos_de_energia_por_localizacao,
+        analisar_conta_de_energia_de_imagem,
+        salvar_ou_atualizar_lead_silvia
+    ]
+    print("Using direct PostgreSQL connection")
 
 # 1.2 - O "cérebro" do agente: o modelo de linguagem.
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)

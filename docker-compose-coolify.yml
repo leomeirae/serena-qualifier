@@ -25,6 +25,8 @@ x-kestra-config: &kestra-config
       variables:
         # Configurações globais para workflows
         redis_url: "redis://redis:6379/0"
+        # Mapeamento de variáveis de ambiente
+        envVarsPrefix: ""
       secret:
         type: env
     micronaut:
@@ -151,6 +153,10 @@ services:
       KESTRA_SECRETS_SUPABASE_PASSWORD: "@Atjlc151523"
       # URL de conexão centralizada do Supabase/PostgreSQL (com senha já resolvida)
       KESTRA_SECRETS_SUPABASE_DB_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:6543/postgres?user=postgres.ynyvrnasvcxyvjzhzbwf&password=@Atjlc151523"
+      # Segredos adicionais para função secret() nos workflows
+      KESTRA_SECRETS_OPENAI_API_KEY: "sk-proj-L7BHQG27o_Yo3kw..."
+      KESTRA_SECRETS_SERENA_API_TOKEN: "eyJhbGciOiJIUzI1NiIsInR5..."
+      KESTRA_SECRETS_WHATSAPP_API_TOKEN: "RUFBUFIwRkc1c3E4Qk85..."
       # Variáveis de environment para workflows (texto plano)
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"

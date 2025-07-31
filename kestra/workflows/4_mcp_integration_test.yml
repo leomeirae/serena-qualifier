@@ -1,0 +1,225 @@
+id: 4_mcp_integration_test
+namespace: serena.production
+description: "Workflow de teste da integração MCP Supabase - Validação e monitoramento"
+
+triggers:
+  - id: test_mcp_integration
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 */6 * * *"  # Executa a cada 6 horas
+    description: "Teste automático da integração MCP Supabase"
+
+variables:
+  # Configurações do ambiente
+  mcp_server_url: "http://egkccc8ow4ww4kw40gokgkw0.157.180.32.249.sslip.io"
+
+tasks:
+  # Tarefa 1: Verificar status do MCP Server
+  - id: check-mcp-status
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Verifica se o MCP Server está online"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    beforeCommands:
+      - pip install requests
+    
+    script: |
+      import requests
+      import json
+      from kestra import Kestra
+      
+      mcp_url = "{{ vars.mcp_server_url }}"
+      
+      try:
+          # Testa endpoint de status
+          response = requests.get(f"{mcp_url}/status", timeout=10)
+          
+          if response.status_code == 200:
+              status_data = response.json()
+              Kestra.outputs({
+                  "mcp_online": True,
+                  "status_code": response.status_code,
+                  "response": status_data
+              })
+              print(f"✅ MCP Server está online: {status_data}")
+          else:
+              Kestra.outputs({
+                  "mcp_online": False,
+                  "status_code": response.status_code,
+                  "error": f"HTTP {response.status_code}"
+              })
+              print(f"❌ MCP Server retornou erro: {response.status_code}")
+              
+      except Exception as e:
+          Kestra.outputs({
+              "mcp_online": False,
+              "error": str(e)
+          })
+          print(f"❌ Erro ao conectar com MCP Server: {str(e)}")
+
+  # Tarefa 2: Testar consulta de leads via MCP (se disponível)
+  - id: test-mcp-lead-query
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Testa consulta de leads via MCP Server"
+    runIf: "{{ outputs['check-mcp-status'].vars.mcp_online == true }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    beforeCommands:
+      - pip install requests
+    
+    script: |
+      import requests
+      import json
+      from kestra import Kestra
+      
+      mcp_url = "{{ vars.mcp_server_url }}"
+      
+      try:
+          # Testa endpoint MCP com uma query simples
+          payload = {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "list_tables",
+              "params": {}
+          }
+          
+          response = requests.post(
+              f"{mcp_url}/mcp",
+              headers={"Content-Type": "application/json"},
+              json=payload,
+              timeout=30
+          )
+          
+          if response.status_code == 200:
+              result = response.json()
+              if "error" not in result:
+                  Kestra.outputs({
+                      "mcp_query_success": True,
+                      "tables_count": len(result.get("result", [])),
+                      "response": result
+                  })
+                  print(f"✅ Query MCP bem-sucedida: {len(result.get('result', []))} tabelas encontradas")
+              else:
+                  Kestra.outputs({
+                      "mcp_query_success": False,
+                      "error": result["error"]
+                  })
+                  print(f"❌ Erro na query MCP: {result['error']}")
+          else:
+              Kestra.outputs({
+                  "mcp_query_success": False,
+                  "error": f"HTTP {response.status_code}"
+              })
+              print(f"❌ Erro HTTP na query MCP: {response.status_code}")
+              
+      except Exception as e:
+          Kestra.outputs({
+              "mcp_query_success": False,
+              "error": str(e)
+          })
+          print(f"❌ Erro ao testar query MCP: {str(e)}")
+
+  # Tarefa 3: Log de sucesso da integração MCP
+  - id: log-mcp-success
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra sucesso dos testes MCP"
+    runIf: "{{ outputs['check-mcp-status'].vars.mcp_online == true and outputs['test-mcp-lead-query'].vars.mcp_query_success == true }}"
+    message: |
+      ✅ INTEGRAÇÃO MCP SUPABASE FUNCIONANDO
+      ======================================
+      MCP Server: {{ vars.mcp_server_url }}
+      Status: Online
+      Query Test: Sucesso
+      Tabelas Encontradas: {{ outputs['test-mcp-lead-query'].vars.tables_count }}
+      Timestamp: {{ execution.startDate }}
+      
+      A integração MCP está pronta para uso em produção.
+
+  # Tarefa 4: Log de erro da integração MCP
+  - id: log-mcp-error
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra erro nos testes MCP"
+    runIf: "{{ outputs['check-mcp-status'].vars.mcp_online != true or outputs['test-mcp-lead-query'].vars.mcp_query_success != true }}"
+    level: ERROR
+    message: |
+      ❌ ERRO NA INTEGRAÇÃO MCP SUPABASE
+      ===================================
+      MCP Server: {{ vars.mcp_server_url }}
+      Status: {{ outputs['check-mcp-status'].vars.mcp_online }}
+      Query Test: {{ outputs['test-mcp-lead-query'].vars.mcp_query_success if outputs['test-mcp-lead-query'].vars.mcp_query_success is defined else 'N/A' }}
+      Erro Status: {{ outputs['check-mcp-status'].vars.error if outputs['check-mcp-status'].vars.error is defined else 'N/A' }}
+      Erro Query: {{ outputs['test-mcp-lead-query'].vars.error if outputs['test-mcp-lead-query'].vars.error is defined else 'N/A' }}
+      Timestamp: {{ execution.startDate }}
+      
+      A integração MCP não está funcionando. Verificar configurações.
+
+  # Tarefa 5: Teste de fallback para conexão direta
+  - id: test-direct-connection
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Testa conexão direta PostgreSQL como fallback"
+    runIf: "{{ outputs['check-mcp-status'].vars.mcp_online != true }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    
+    beforeCommands:
+      - pip install psycopg2-binary
+    
+    env:
+      SECRET_DB_CONNECTION_STRING: "{{ envs.secret_db_connection_string }}"
+    
+    script: |
+      import base64
+      import os
+      import psycopg2
+      from kestra import Kestra
+      
+      try:
+          # Decodifica a string de conexão
+          encoded_conn_string = os.getenv('SECRET_DB_CONNECTION_STRING')
+          if not encoded_conn_string:
+              raise ValueError("SECRET_DB_CONNECTION_STRING não encontrada")
+          
+          db_connection_string = base64.b64decode(encoded_conn_string).decode('utf-8')
+          
+          # Testa conexão direta
+          conn = psycopg2.connect(db_connection_string)
+          cur = conn.cursor()
+          
+          # Query simples para testar
+          cur.execute("SELECT COUNT(*) FROM leads")
+          count = cur.fetchone()[0]
+          
+          cur.close()
+          conn.close()
+          
+          Kestra.outputs({
+              "direct_connection_success": True,
+              "leads_count": count
+          })
+          print(f"✅ Conexão direta funcionando: {count} leads encontrados")
+          
+      except Exception as e:
+          Kestra.outputs({
+              "direct_connection_success": False,
+              "error": str(e)
+          })
+          print(f"❌ Erro na conexão direta: {str(e)}")
+
+  # Tarefa 6: Log de status geral
+  - id: log-overall-status
+    type: io.kestra.plugin.core.log.Log
+    description: "Registra status geral da integração"
+    message: |
+      📊 STATUS GERAL DA INTEGRAÇÃO SUPABASE
+      ======================================
+      MCP Server: {{ outputs['check-mcp-status'].vars.mcp_online if outputs['check-mcp-status'].vars.mcp_online is defined else 'N/A' }}
+      MCP Query: {{ outputs['test-mcp-lead-query'].vars.mcp_query_success if outputs['test-mcp-lead-query'].vars.mcp_query_success is defined else 'N/A' }}
+      Direct Connection: {{ outputs['test-direct-connection'].vars.direct_connection_success if outputs['test-direct-connection'].vars.direct_connection_success is defined else 'N/A' }}
+      Leads Count: {{ outputs['test-direct-connection'].vars.leads_count if outputs['test-direct-connection'].vars.leads_count is defined else 'N/A' }}
+      Timestamp: {{ execution.startDate }}
+      
+      Configuração atual: {{ 'MCP' if outputs['check-mcp-status'].vars.mcp_online == true and outputs['test-mcp-lead-query'].vars.mcp_query_success == true else 'Direct PostgreSQL' }} 
