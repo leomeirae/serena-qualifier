@@ -222,14 +222,16 @@ async def trigger_kestra_workflow(message: WhatsAppMessage) -> Dict[str, Any]:
                 "phone": message.phone,
                 "message": user_message,
                 "timestamp": message.timestamp,
-                "type": "button"
+                "type": "button",
+                "lead_id": f"lead_{message.phone.replace('+', '').replace('-', '').replace(' ', '')}"
             }
         else:
             payload = {
                 "phone": message.phone,
                 "message": message.message,
                 "timestamp": message.timestamp,
-                "type": message.type or "text"
+                "type": message.type or "text",
+                "lead_id": f"lead_{message.phone.replace('+', '').replace('-', '').replace(' ', '')}"
             }
         if message.media_id:
             payload["media_id"] = message.media_id
