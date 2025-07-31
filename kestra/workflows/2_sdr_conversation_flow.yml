@@ -32,10 +32,10 @@ tasks:
     message: |
       [SDR TRIGGER] Webhook recebido
       ================================================
-      Phone: {{ trigger.body.phone ?? trigger.body.phone ?? 'N/A' }}
-      Lead ID: {{ trigger.body.lead_id ?? trigger.body.lead_id ?? 'N/A' }}
-      Message: {{ trigger.body.message ?? trigger.body.message ?? 'N/A' }}
-      Message Type: {{ trigger.body.type ?? trigger.body.type ?? 'text' }}
+      Phone: {{ trigger.body.phone ?? 'N/A' }}
+      Lead ID: {{ trigger.body.lead_id ?? 'N/A' }}
+      Message: {{ trigger.body.message ?? 'N/A' }}
+      Message Type: {{ trigger.body.type ?? 'text' }}
       Timestamp: {{ now() }}
 
   # FASE 2: EXTRAÇÃO DE MEDIA_ID
@@ -50,6 +50,7 @@ tasks:
       PHONE_NUMBER: "{{ trigger.body.phone ?? 'N/A' }}"
       LEAD_ID: "{{ trigger.body.lead_id ?? 'N/A' }}"
       MESSAGE_TYPE: "{{ trigger.body.type ?? 'text' }}"
+      MESSAGE_TEXT: "{{ trigger.body.message ?? '' }}"
     script: |
       import json
       import os
@@ -61,10 +62,12 @@ tasks:
           phone = os.environ.get('PHONE_NUMBER', '')
           lead_id = os.environ.get('LEAD_ID', '')
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
+          message_text = os.environ.get('MESSAGE_TEXT', '')
           
           print(f"[DEBUG] Phone: {phone}")
           print(f"[DEBUG] Lead ID: {lead_id}")
           print(f"[DEBUG] Message Type: {message_type}")
+          print(f"[DEBUG] Message Text: {message_text}")
           
           # Para este teste, vamos usar um media_id vazio
           media_id = ""
@@ -74,7 +77,8 @@ tasks:
               'media_id': media_id,
               'phone': phone,
               'lead_id': lead_id,
-              'message_type': message_type
+              'message_type': message_type,
+              'message_text': message_text
           })
           
       except Exception as e:
@@ -83,7 +87,8 @@ tasks:
               'media_id': '',
               'phone': '',
               'lead_id': '',
-              'message_type': 'text'
+              'message_type': 'text',
+              'message_text': ''
           })
 
   # FASE 3: CLASSIFICAÇÃO DE MÍDIA (NOVO)
@@ -97,7 +102,7 @@ tasks:
     env:
       MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id }}"
       MESSAGE_TYPE: "{{ outputs.extract_media_id.vars.message_type }}"
-      MESSAGE_TEXT: "{{ trigger.body.message ?? '' }}"
+      MESSAGE_TEXT: "{{ outputs.extract_media_id.vars.message_text }}"
     inputFiles:
       scripts/sdr/classify_media.py: "{{ read('scripts/sdr/classify_media.py') }}"
     script: |
@@ -152,7 +157,7 @@ tasks:
         "params": {
           "name": "execute_sql",
           "arguments": {
-            "query": "SELECT * FROM leads WHERE phone_number = '{{ trigger.body.phone }}'"
+            "query": "SELECT * FROM leads WHERE phone_number = '{{ outputs.extract_media_id.vars.phone }}'"
           }
         }
       }
@@ -173,11 +178,11 @@ tasks:
       WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
 
       # 🧠 Configuração da Mensagem
-      USER_MESSAGE: "{{ trigger.body.message }}"
-      PHONE_NUMBER: "{{ trigger.body.phone }}"
-      MESSAGE_TYPE: "{{ trigger.body.type | default('text') }}"
+      USER_MESSAGE: "{{ outputs.extract_media_id.vars.message_text }}"
+      PHONE_NUMBER: "{{ outputs.extract_media_id.vars.phone }}"
+      MESSAGE_TYPE: "{{ outputs.extract_media_id.vars.message_type }}"
       MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id | default('') }}"
-      LEAD_ID: "{{ trigger.body.lead_id }}"
+      LEAD_ID: "{{ outputs.extract_media_id.vars.lead_id }}"
       IS_IMAGE: "{{ outputs.classify_media.vars.is_image | default(false) }}"
       EXTRACTED_TEXT: "{{ outputs.classify_media.vars.extracted_text | default('') }}"
 
@@ -290,7 +295,7 @@ tasks:
         "params": {
           "name": "sendTextMessage",
           "arguments": {
-            "to": "{{ trigger.body.phone }}",
+            "to": "{{ outputs.extract_media_id.vars.phone }}",
             "message": "{{ outputs.run_agent.vars.response }}"
           }
         }
@@ -305,9 +310,9 @@ tasks:
     message: |
       ✅ SDR PROCESSAMENTO CONCLUÍDO COM SUCESSO
       ================================================
-      Lead ID: {{ trigger.body.lead_id }}
-      Phone: {{ trigger.body.phone }}
-      Message: {{ trigger.body.message[:100] }}...
+      Lead ID: {{ outputs.extract_media_id.vars.lead_id }}
+      Phone: {{ outputs.extract_media_id.vars.phone }}
+      Message: {{ outputs.extract_media_id.vars.message_text[:100] }}...
       Is Image: {{ outputs.classify_media.vars.is_image }}
       Response Length: {{ outputs.run_agent.vars.response | length }} chars
       WhatsApp Status: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }}
@@ -353,8 +358,8 @@ tasks:
     runIf: "{{ outputs.run_agent.vars.success == true }}"
     env:
       OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
-      PHONE_NUMBER: "{{ trigger.body.phone }}"
-      LEAD_ID: "{{ trigger.body.lead_id }}"
+      PHONE_NUMBER: "{{ outputs.extract_media_id.vars.phone }}"
+      LEAD_ID: "{{ outputs.extract_media_id.vars.lead_id }}"
       LEAD_DATA: "{{ outputs.get_lead_data.body | default('{}') }}"
       SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
       SERENA_MCP_URL: "{{ vars.serena_mcp_url }}"
@@ -406,8 +411,8 @@ tasks:
     message: |
       [SDR WORKFLOW FINALIZADO]
       ================================================
-      Lead ID: {{ trigger.body.lead_id }}
-      Phone: {{ trigger.body.phone }}
+      Lead ID: {{ outputs.extract_media_id.vars.lead_id }}
+      Phone: {{ outputs.extract_media_id.vars.phone }}
       Agent Success: {{ outputs.run_agent.vars.success | default('N/A') }}
       WhatsApp Sent: {{ outputs.send_whatsapp_message.vars.statusCode | default('N/A') }}
       Follow-up Sent: {{ outputs.follow_up_if_needed.vars.follow_up_sent | default('N/A') }}
