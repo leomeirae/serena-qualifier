@@ -142,19 +142,6 @@ async def trigger_kestra_workflow(message: WhatsAppMessage):
 # --- CORREÇÃO DOS ENDPOINTS ---
 
 @app.get("/")
-async def health_check():
-    """
-    Health check endpoint para o Docker healthcheck.
-    """
-    logger.info("Health check recebido na raiz.")
-    return {
-        "status": "healthy",
-        "service": "whatsapp-webhook-service",
-        "version": "1.1.1",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.get("/webhook")
 async def health_check_and_verify(request: Request):
     """
     Endpoint combinado para health check e verificação do webhook do WhatsApp.
@@ -181,12 +168,12 @@ async def health_check_and_verify(request: Request):
             "kestra_target_url": KESTRA_WEBHOOK_URL
         }
 
-@app.post("/webhook")
+@app.post("/")
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Recebe webhooks de mensagens do WhatsApp no path /webhook.
+    Recebe webhooks de mensagens do WhatsApp na raiz (Traefik remove /webhook).
     """
-    logger.info("Webhook POST recebido no path '/webhook'")
+    logger.info("Webhook POST recebido na raiz '/' (Traefik stripprefix)")
     payload_bytes = await request.body()
     
     # Verificação de assinatura

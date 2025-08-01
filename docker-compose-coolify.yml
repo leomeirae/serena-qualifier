@@ -270,7 +270,7 @@ services:
         uvicorn webhook_service:app --host 0.0.0.0 --port 8001 --reload
       "
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/webhook"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
       interval: 30s
       timeout: 15s
       retries: 8
@@ -279,6 +279,8 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.webhook.rule=Host(`kestrawebhook.darwinai.com.br`) && Path(`/webhook`)"
       - "traefik.http.services.webhook.loadbalancer.server.port=8001"
+      - "traefik.http.routers.webhook.middlewares=webhook-stripprefix"
+      - "traefik.http.middlewares.webhook-stripprefix.stripprefix.prefixes=/webhook"
 
   # =============================================================================
   # MCP SERVERS - SERENA SDR
