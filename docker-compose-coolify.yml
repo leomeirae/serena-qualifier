@@ -228,10 +228,28 @@ services:
     image: python:3.11-slim
     working_dir: /app
     environment:
+      TZ: America/Sao_Paulo
       # Configurações do webhook
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
+      WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET}"
       KESTRA_API_URL: "http://kestra:8081"
       CHATWOOT_WEBHOOK_URL: "${CHATWOOT_WEBHOOK_URL}"
+      # APIs principais (para compatibilidade)
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      SERENA_API_TOKEN: "${SERENA_API_TOKEN}"
+      SERENA_API_BASE_URL: "${SERENA_API_BASE_URL}"
+      WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
+      WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
+      # Supabase
+      SUPABASE_URL: "${SECRET_SUPABASE_URL}"
+      SUPABASE_KEY: "${SECRET_SUPABASE_KEY}"
+      DB_CONNECTION_STRING: "${SECRET_DB_CONNECTION_STRING}"
+      # Redis
+      REDIS_URL: "redis://redis:6379/0"
+      # MCP Servers URLs
+      SUPABASE_MCP_URL: "http://supabase-mcp-server:3000"
+      SERENA_MCP_URL: "http://serena-mcp-server:3002"
+      WHATSAPP_MCP_URL: "http://whatsapp-mcp-server:3003"
       PYTHONPATH: "/app"
     depends_on:
       kestra:
@@ -242,15 +260,17 @@ services:
     networks:
       - coolify
     volumes:
-      - ./:/app
+      - ./scripts:/app/scripts
+      - ./requirements.txt:/app/requirements.txt
     command: >
       sh -c "
         apt-get update && apt-get install -y curl &&
         pip install --no-cache-dir -r requirements.txt &&
+        cd /app/scripts &&
         uvicorn webhook_service:app --host 0.0.0.0 --port 8001 --reload
       "
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/webhook"]
       interval: 30s
       timeout: 15s
       retries: 8
