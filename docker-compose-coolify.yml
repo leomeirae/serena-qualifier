@@ -257,7 +257,7 @@ services:
       start_period: 120s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.webhook.rule=Host(`kestrawebhook.darwinai.com.br`)"
+      - "traefik.http.routers.webhook.rule=Host(`kestrawebhook.darwinai.com.br`) && Path(`/webhook`)"
       - "traefik.http.services.webhook.loadbalancer.server.port=8001"
 
   # =============================================================================
