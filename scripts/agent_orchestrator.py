@@ -16,11 +16,13 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 
 # --- Importar Ferramentas Específicas do Agente ---
 from scripts.agent_tools.knowledge_base_tool import consultar_faq_serena
+from scripts.agent_tools.faq_data import carregar_faq_data
 from scripts.agent_tools.serena_tools import (
     buscar_planos_de_energia_por_localizacao,
     analisar_conta_de_energia_de_imagem,
 )
 from scripts.agent_tools.supabase_agent_tools import salvar_ou_atualizar_lead_silvia, consultar_dados_lead, upload_energy_bill_image, generate_signed_url, save_image_metadata
+from scripts.lead_data_utils import normalize_lead_data, extract_lead_from_message
 
 # --- Importar Ferramentas MCP Supabase ---
 try:

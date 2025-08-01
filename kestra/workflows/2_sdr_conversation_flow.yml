@@ -42,10 +42,13 @@ tasks:
     description: "Extrai dados do webhook WhatsApp e busca lead no Supabase"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: python:3.11-slim
+      image: kestra-agent:latest
       networkMode: coolify
     env:
-      TRIGGER_BODY: "{{ trigger.body | toJson }}"
+      TRIGGER_BODY: "{{ trigger.body | toJson | default('{}') }}"
+      MANUAL_PHONE: "{{ inputs.phone | default('') }}"
+      MANUAL_MESSAGE: "{{ inputs.message | default('') }}"
+      MANUAL_TYPE: "{{ inputs.type | default('text') }}"
       DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
     script: |
       import json
@@ -56,21 +59,33 @@ tasks:
       print("[DEBUG] Iniciando extração de dados do webhook WhatsApp...")
       
       try:
-          # Obter dados do trigger
+          # Obter dados do trigger ou inputs manuais
           trigger_body = json.loads(os.environ.get('TRIGGER_BODY', '{}'))
-          print(f"[DEBUG] Trigger body: {json.dumps(trigger_body, indent=2)}")
+          manual_phone = os.environ.get('MANUAL_PHONE', '')
+          manual_message = os.environ.get('MANUAL_MESSAGE', '')
+          manual_type = os.environ.get('MANUAL_TYPE', 'text')
           
-          # Extrair dados do webhook WhatsApp
+          print(f"[DEBUG] Trigger body: {json.dumps(trigger_body, indent=2)}")
+          print(f"[DEBUG] Manual inputs: phone={manual_phone}, message={manual_message}, type={manual_type}")
+          
+          # Extrair dados do webhook WhatsApp ou inputs manuais
           phone_number = None
           message_text = None
           message_type = "text"
           media_id = ""
           
+          # Se temos inputs manuais, usar eles
+          if manual_phone and manual_message:
+              phone_number = manual_phone
+              message_text = manual_message
+              message_type = manual_type
+              print(f"[DEBUG] Usando inputs manuais")
           # Tentar extrair do formato padrão primeiro
-          if 'phone' in trigger_body:
+          elif 'phone' in trigger_body:
               phone_number = trigger_body['phone']
               message_text = trigger_body.get('message', '')
               message_type = trigger_body.get('type', 'text')
+              print(f"[DEBUG] Usando formato padrão do trigger")
           # Se não, tentar extrair do formato WhatsApp webhook
           elif 'entry' in trigger_body and len(trigger_body['entry']) > 0:
               entry = trigger_body['entry'][0]
@@ -98,6 +113,7 @@ tasks:
                           elif message_type == 'document':
                               message_text = message.get('document', {}).get('caption', '')
                               media_id = message.get('document', {}).get('id', '')
+              print(f"[DEBUG] Usando formato WhatsApp webhook")
           
           print(f"[DEBUG] Phone: {phone_number}")
           print(f"[DEBUG] Message: {message_text}")
@@ -106,10 +122,10 @@ tasks:
           
           # Validar dados obrigatórios
           if not phone_number:
-              raise ValueError("Phone number not found in webhook")
+              raise ValueError("Phone number not found in webhook or inputs")
           
           if not message_text:
-              raise ValueError("Message text not found in webhook")
+              raise ValueError("Message text not found in webhook or inputs")
           
           # Buscar lead no Supabase
           db_connection_string = os.getenv('DB_CONNECTION_STRING')
@@ -187,7 +203,7 @@ tasks:
     description: "Classifica se a mensagem é imagem ou texto"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: python:3.11-slim
+      image: kestra-agent:latest
       networkMode: coolify
     env:
       MEDIA_ID: "{{ outputs.extract_whatsapp_data.vars.media_id }}"
@@ -251,7 +267,7 @@ tasks:
     description: "Executa o agente conversacional com OpenAI Function Calling"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: python:3.11-slim
+      image: kestra-agent:latest
       networkMode: coolify
     env:
       # 🔐 Chaves Secretas (API)
@@ -272,77 +288,106 @@ tasks:
       IS_IMAGE: "{{ outputs.classify_media.vars.is_image | default(false) }}"
       EXTRACTED_TEXT: "{{ outputs.classify_media.vars.extracted_text | default('') }}"
 
-      # 🌐 Serviços MCP
-      SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
-      SERENA_MCP_URL: "{{ vars.serena_mcp_url }}"
-      WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
+      # 🔗 Banco de Dados (PostgreSQL centralizado)
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
 
-      # ⚙️ Configurações IA
-      AI_MODEL: "{{ vars.ai_model }}"
-      MAX_TOKENS: "{{ vars.max_tokens }}"
-      TEMPERATURE: "{{ vars.temperature }}"
+      # 🌐 Serviços Internos
+      SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
+      REDIS_URL: "redis://redis:6379/0"
+      PYTHONPATH: "/app"
+
+    inputFiles:
+      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
+      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
+      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
+      scripts/lead_data_utils.py: "{{ read('scripts/lead_data_utils.py') }}"
+      scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
+      scripts/agent_tools/__init__.py: ""
 
     script: |
+      import sys
+      sys.path.insert(0, '/app')
       import os
-      import json
+      import logging
+      import base64
       from kestra import Kestra
       
+      # Configurar logging
+      logging.basicConfig(level=logging.INFO)
+      logger = logging.getLogger(__name__)
+      
+      # Configuração das variáveis Supabase (decodificação base64)
+      supabase_url = os.environ.get('SUPABASE_URL')
+      supabase_key = os.environ.get('SUPABASE_KEY')
+      
+      # Decodificação base64 se necessário
+      if supabase_url and supabase_url.startswith("aHR0c"):
+          try:
+              supabase_url = base64.b64decode(supabase_url).decode("utf-8")
+              logger.info("[DEBUG] SUPABASE_URL decodificado com sucesso")
+          except Exception as e:
+              logger.error(f"[ERROR] Falha ao decodificar SUPABASE_URL: {e}")
+      
+      if supabase_key and supabase_key.startswith("ZXlKa"):
+          try:
+              supabase_key = base64.b64decode(supabase_key).decode("utf-8")
+              logger.info("[DEBUG] SUPABASE_KEY decodificado com sucesso")
+          except Exception as e:
+              logger.error(f"[ERROR] Falha ao decodificar SUPABASE_KEY: {e}")
+      
+      # Configura as variáveis para uso
+      if supabase_url and supabase_key:
+          os.environ['SUPABASE_URL'] = supabase_url
+          os.environ['SUPABASE_KEY'] = supabase_key
+          logger.info("[DEBUG] SUPABASE_URL e SUPABASE_KEY configurados para Storage API")
+      else:
+          logger.warning("[WARNING] SUPABASE_URL ou SUPABASE_KEY não encontrados - usando PostgreSQL direto")
+      
       try:
-          # Obter dados do ambiente
+          import warnings
+          warnings.filterwarnings("ignore", category=UserWarning)
+          from scripts.agent_orchestrator import handle_agent_invocation
+          
           phone_number = os.environ.get('PHONE_NUMBER')
           user_message = os.environ.get('USER_MESSAGE')
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
           media_id = os.environ.get('MEDIA_ID', '')
-          lead_id = os.environ.get('LEAD_ID')
           lead_name = os.environ.get('LEAD_NAME', 'Cliente')
           lead_city = os.environ.get('LEAD_CITY', 'N/A')
-          lead_state = os.environ.get('LEAD_STATE', 'N/A')
-          lead_invoice = float(os.environ.get('LEAD_INVOICE', '0'))
-          is_image = os.environ.get('IS_IMAGE', 'false').lower() == 'true'
-          extracted_text = os.environ.get('EXTRACTED_TEXT', '')
           
-          print(f"[DEBUG] PHONE_NUMBER: '{phone_number}'")
-          print(f"[DEBUG] LEAD_NAME: '{lead_name}'")
-          print(f"[DEBUG] LEAD_CITY: '{lead_city}'")
-          print(f"[DEBUG] USER_MESSAGE: '{user_message}'")
-          print(f"[DEBUG] MESSAGE_TYPE: '{message_type}'")
-          print(f"[DEBUG] IS_IMAGE: '{is_image}'")
+          # Log detalhado para debug
+          logger.info(f"[DEBUG] MEDIA_ID do ENV: '{media_id}'")
+          logger.info(f"[DEBUG] MESSAGE_TYPE do ENV: '{message_type}'")
+          logger.info(f"[DEBUG] PHONE_NUMBER do ENV: '{phone_number}'")
+          logger.info(f"[DEBUG] USER_MESSAGE do ENV: '{user_message[:100]}...'")
+          logger.info(f"[DEBUG] LEAD_NAME do ENV: '{lead_name}'")
+          logger.info(f"[DEBUG] LEAD_CITY do ENV: '{lead_city}'")
           
-          # Simular resposta do agente IA baseada no contexto
-          if "sim" in user_message.lower() and "confirmar" in user_message.lower():
-              response = f"Perfeito, {lead_name}! 😊 Confirmei que você está em {lead_city}. Agora vou te ajudar a economizar na sua conta de luz com energia solar! Qual é o valor médio da sua conta de energia?"
-          elif "não" in user_message.lower() or "outra" in user_message.lower():
-              response = f"Sem problemas, {lead_name}! 😊 Em qual cidade você está localizado? Assim posso verificar se temos cobertura de energia solar na sua região."
-          elif "energia solar" in user_message.lower() or "solar" in user_message.lower():
-              response = "Ótima pergunta! A energia solar é uma excelente opção para economizar na sua conta de luz. Com nossos painéis solares, você pode reduzir sua conta em até 95%! Gostaria de saber mais sobre como funciona?"
-          elif "preço" in user_message.lower() or "valor" in user_message.lower() or "custo" in user_message.lower():
-              response = "O investimento em energia solar varia conforme o seu consumo. Posso fazer uma análise personalizada para você! Qual é o valor médio da sua conta de luz?"
-          elif "olá" in user_message.lower() or "oi" in user_message.lower():
-              response = f"Olá, {lead_name}! Sou a Sílvia da Serena Energia! 😊 Como posso ajudá-lo hoje? Estou aqui para esclarecer suas dúvidas sobre energia solar e ajudar você a economizar na sua conta de luz!"
-          else:
-              response = f"Obrigada pelo contato, {lead_name}! Sou a Sílvia da Serena Energia e estou aqui para ajudá-lo com tudo sobre energia solar. Como posso ser útil hoje?"
-          
-          print(f"[AI] Resposta gerada: {len(response)} chars")
+          logger.info(f"[AI] Processando mensagem para {phone_number}: {user_message[:50]}... (type={message_type}, media_id={media_id})")
+          result = handle_agent_invocation(phone_number, user_message, lead_city=lead_city, lead_name=lead_name, message_type=message_type, media_id=media_id)
+          response = result.get('response', 'Desculpe, ocorreu um erro interno.')
+          logger.info(f"[AI] Resposta gerada: {len(response)} chars")
           
           Kestra.outputs({
               'response': response,
               'success': True,
-              'lead_id': lead_id,
+              'lead_id': os.environ.get('LEAD_ID'),
               'phone_number': phone_number,
               'lead_name': lead_name
           })
-          
       except Exception as e:
-          print(f"[ERROR] Erro no processamento IA: {str(e)}")
+          logger.error(f"[ERROR] Erro no processamento IA: {str(e)}")
           import traceback
-          print(f"[ERROR] Traceback: {traceback.format_exc()}")
+          logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
           
           fallback_response = "Olá! Sou a Sílvia da Serena Energia. 😊 No momento estou com dificuldades técnicas. Por favor, tente novamente em alguns minutos ou entre em contato conosco pelo nosso canal oficial. Obrigada pela compreensão!"
           Kestra.outputs({
               'response': fallback_response,
               'success': False,
               'error': str(e),
-              'lead_id': lead_id,
+              'lead_id': os.environ.get('LEAD_ID'),
               'phone_number': phone_number
           })
 
