@@ -40,14 +40,10 @@ def get_db_connection():
     return psycopg2.connect(conn_string)
 
 def salvar_ou_atualizar_lead_silvia(lead_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Salva ou atualiza dados de lead no Supabase/PostgreSQL.
+    """Salva ou atualiza dados de lead no Supabase/PostgreSQL.
     
     Args:
         lead_data (Dict[str, Any]): Dados do lead
-        
-    Returns:
-        Dict[str, Any]: Resultado da operação
     """
     try:
         logger.info(f"Salvando/atualizando lead: {lead_data.get('phone_number', 'N/A')}")
@@ -116,14 +112,10 @@ def salvar_ou_atualizar_lead_silvia(lead_data: Dict[str, Any]) -> Dict[str, Any]
         }
 
 def consultar_dados_lead(phone: str) -> Dict[str, Any]:
-    """
-    Consulta dados de um lead pelo número de telefone.
+    """Consulta dados de um lead pelo número de telefone.
     
     Args:
         phone (str): Número de telefone do lead
-        
-    Returns:
-        Dict[str, Any]: Dados do lead ou None se não encontrado
     """
     try:
         logger.info(f"Consultando lead: {phone}")

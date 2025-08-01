@@ -117,14 +117,10 @@ def carregar_faq_data() -> List[Dict[str, str]]:
     return DEFAULT_FAQ_DATA
 
 def consultar_faq_serena(pergunta: str) -> Dict[str, Any]:
-    """
-    Consulta o FAQ da Serena para encontrar a resposta mais relevante.
+    """Consulta o FAQ da Serena para encontrar a resposta mais relevante.
     
     Args:
         pergunta (str): Pergunta do usuário
-        
-    Returns:
-        Dict[str, Any]: Dicionário com a resposta e metadados
     """
     try:
         logger.info(f"Consultando FAQ para: {pergunta[:50]}...")
