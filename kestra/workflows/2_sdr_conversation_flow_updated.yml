@@ -1,4 +1,4 @@
-id: 2_sdr_conversation_flow
+id: 2_sdr_conversation_flow_updated
 namespace: serena.production
 description: "Serena SDR - Agente Virtual de Pré-vendas (Sílvia) - Workflow principal de conversação"
 
@@ -304,7 +304,7 @@ tasks:
       scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
       scripts/lead_data_utils.py: "{{ read('scripts/lead_data_utils.py') }}"
       scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
-      scripts/agent_tools/__init__.py: ""
+      scripts/agent_tools/__init__.py: "{{ read('scripts/agent_tools/__init__.py') }}"
 
     script: |
       import sys
