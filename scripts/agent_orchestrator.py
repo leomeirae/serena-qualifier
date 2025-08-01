@@ -233,7 +233,6 @@ agent = create_openai_tools_agent(llm, tools, prompt)
 # 1.5 - Cria o executor do agente.
 agent_executor = AgentExecutor(
     agent=agent, 
-    tools=tools, 
     verbose=True,
     handle_parsing_errors=True,
     max_iterations=10
