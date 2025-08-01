@@ -396,60 +396,55 @@ def baixar_e_rehospedar_imagem_whatsapp(media_id: str, lead_phone: str) -> str:
 
 
 @app.get("/")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": "whatsapp-webhook-service",
-        "version": "1.0.0",
-        "timestamp": datetime.now().isoformat(),
-        "kestra_url": KESTRA_WEBHOOK_URL,
-        "chatwoot_url": CHATWOOT_WEBHOOK_URL,
-        "chatwoot_enabled": bool(CHATWOOT_WEBHOOK_URL)
-    }
-
-
-@app.get("/webhook")
-async def verify_webhook(request: Request):
+async def health_check_and_verify(request: Request):
     """
-    Verificação do webhook do WhatsApp (challenge).
+    Endpoint combinado para health check e verificação do webhook.
     
-    O WhatsApp envia um GET com challenge para verificar o endpoint.
+    Se houver parâmetros hub.mode, hub.verify_token e hub.challenge, 
+    trata como verificação do WhatsApp. Caso contrário, retorna health check.
     """
-    try:
-        # Parâmetros de verificação
-        mode = request.query_params.get("hub.mode")
-        token = request.query_params.get("hub.verify_token")
-        challenge = request.query_params.get("hub.challenge")
-        
-        logger.info(f"🔐 Verificação webhook: mode={mode}, token={token}, challenge={challenge}")
-        logger.info(f"🔐 Token esperado: {WHATSAPP_VERIFY_TOKEN}")
-        
-        # Verificar se todos os parâmetros foram recebidos
-        if not mode or not token or not challenge:
-            logger.error(f"❌ Parâmetros faltando: mode={mode}, token={token}, challenge={challenge}")
-            raise HTTPException(status_code=400, detail="Parâmetros hub.mode, hub.verify_token e hub.challenge são obrigatórios")
-        
-        # Verificar se é o token correto
-        if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
-            logger.info("✅ Webhook verificado com sucesso!")
-            return PlainTextResponse(challenge)
-        else:
-            logger.warning(f"❌ Token inválido: esperado={WHATSAPP_VERIFY_TOKEN}, recebido={token}")
-            raise HTTPException(status_code=403, detail="Token inválido")
+    # Verificar se é uma verificação do WhatsApp
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    
+    if mode and token and challenge:
+        # É uma verificação do WhatsApp
+        try:
+            logger.info(f"🔐 Verificação webhook: mode={mode}, token={token}, challenge={challenge}")
+            logger.info(f"🔐 Token esperado: {WHATSAPP_VERIFY_TOKEN}")
             
-    except HTTPException:
-        # Re-raise HTTPException para não ser capturada pelo except genérico
-        raise
-    except Exception as e:
-        logger.error(f"💥 Erro na verificação: {str(e)}")
-        logger.error(f"💥 Tipo do erro: {type(e)}")
-        import traceback
-        logger.error(f"💥 Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail="Erro interno")
+            # Verificar se é o token correto
+            if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
+                logger.info("✅ Webhook verificado com sucesso!")
+                return PlainTextResponse(challenge)
+            else:
+                logger.warning(f"❌ Token inválido: esperado={WHATSAPP_VERIFY_TOKEN}, recebido={token}")
+                raise HTTPException(status_code=403, detail="Token inválido")
+                
+        except HTTPException:
+            # Re-raise HTTPException para não ser capturada pelo except genérico
+            raise
+        except Exception as e:
+            logger.error(f"💥 Erro na verificação: {str(e)}")
+            logger.error(f"💥 Tipo do erro: {type(e)}")
+            import traceback
+            logger.error(f"💥 Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail="Erro interno")
+    else:
+        # É um health check normal
+        return {
+            "status": "healthy",
+            "service": "whatsapp-webhook-service",
+            "version": "1.0.0",
+            "timestamp": datetime.now().isoformat(),
+            "kestra_url": KESTRA_WEBHOOK_URL,
+            "chatwoot_url": CHATWOOT_WEBHOOK_URL,
+            "chatwoot_enabled": bool(CHATWOOT_WEBHOOK_URL)
+        }
 
 
-@app.post("/webhook")
+@app.post("/")
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     trace_id = str(uuid.uuid4())
     logger.info(f"[TRACE {trace_id}] Nova requisição recebida", extra={"trace_id": trace_id})
