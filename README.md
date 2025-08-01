@@ -1,401 +1,1384 @@
-# Serena Lead Qualifier
+# Serena SDR - Agente Virtual de Pré-vendas 🤖
 
-Sistema automatizado para qualificação de leads de energia solar via WhatsApp + IA.
+## 📋 Visão Geral
+
+O **Serena SDR** é um agente virtual de pré-vendas (Sílvia) que automatiza conversas com leads via WhatsApp Business API. O sistema integra OCR de faturas de energia, qualificação de leads e apresentação de planos de energia solar.
+
+## 🎯 Funcionalidades Principais
+
+- ✅ **Conversa Automatizada** com leads via WhatsApp
+- ✅ **OCR de Faturas** de energia usando OpenAI Vision
+- ✅ **Qualificação de Leads** (conta ≥ R$ 200)
+- ✅ **Apresentação de Planos** de energia solar (API Serena)
+- ✅ **Follow-up Automático** em 2 horas se sem resposta
+- ✅ **Integração MCP** com Supabase, Serena e WhatsApp
 
 ## 🏗️ Arquitetura
 
-- **Kestra**: Orquestração de workflows
-- **WhatsApp Business API**: Comunicação com leads
-- **OpenAI GPT-4**: Agente IA conversacional  
-- **LangChain**: Framework IA complementar com RAG (NOVO ✨)
-- **FAISS**: Busca semântica para knowledge base (NOVO ✨)
-- **OCR Inteligente**: Processamento automático de contas de energia (NOVO 🔍)
-- **Supabase**: Persistência de dados
-- **Docker**: Containerização completa
-
-## 📦 Estrutura do Projeto
-
-```
-serena-qualifier/
-├── scripts/
-│   ├── agent_tools/              # 🆕 Ferramentas LangChain
-│   │   ├── knowledge_base_tool.py # RAG para dúvidas gerais
-│   │   ├── faq_data.py           # Dados para RAG
-│   │   ├── serena_tools.py       # Ferramentas para API Serena
-│   │   └── supabase_agent_tools.py # Ferramentas para Supabase
-│   ├── sdr/                      # 🆕 Scripts SDR (Serena SDR)
-│   │   ├── ai_sdr_agent.py       # Agente IA conversacional SDR
-│   │   ├── classify_media.py     # Classificação de mídia (texto/imagem)
-│   │   ├── follow_up_agent.py    # Agente de follow-up automático
-│   │   ├── agent_tools/          # Ferramentas do agente SDR
-│   │   └── utils/                # Utilitários SDR
-│   ├── agent_orchestrator.py     # 🆕 Orquestrador principal LangChain
-│   ├── extract_message_content.py # 🆕 Processador de mensagens de botão
-│   ├── ai_conversation_handler.py # Manipulador de conversas
-│   ├── conversation_context.py   # Gerenciador de contexto
-│   ├── location_extractor.py     # Extrator de localização
-│   ├── serena_api.py             # ✅ API real Serena
-│   ├── upload_namespace_files.py # Upload para Kestra
-│   └── verify_mcp_servers.py     # 🆕 Verificação de MCP servers
-├── kestra/workflows/             # ✅ Workflows Kestra
-│   ├── 1_lead_activation_flow.yml # Ativação de leads
-│   ├── 2_ai_conversation_flow.yml # Conversa IA básica
-│   ├── 3_ai_conversation_optimized.yml # 🆕 Conversa IA otimizada
-│   └── 2_sdr_conversation_flow.yml # 🆕 Workflow SDR (Serena SDR)
-├── config/mcp/                   # 🆕 Configurações MCP Servers
-│   ├── supabase/                 # MCP Server Supabase
-│   ├── serena/                   # MCP Server Serena
-│   └── whatsapp/                 # MCP Server WhatsApp
-├── tests/                        # 🆕 Testes automatizados
-│   ├── e2e/                      # 🆕 Testes end-to-end SDR
-│   │   ├── test_text_message_flow.py
-│   │   ├── test_energy_bill_ocr_flow.py
-│   │   ├── test_follow_up_flow.py
-│   │   └── test_fallback_and_metrics.py
-│   ├── test_button_message_type.py # Teste de botões
-│   ├── test_ativar_perfil_button.py # Teste botão Ativar Perfil
-│   └── test_lead_data_flow.py    # Teste fluxo de dados do lead
-├── knowledge_base/               # 🆕 Base de conhecimento RAG
-│   └── faq_serena.txt            # FAQ sobre energia solar
-└── docker-compose-coolify.yml    # ✅ Stack completa Coolify
+```mermaid
+flowchart LR
+  WA[WhatsApp] --> KESTRA[Kestra Workflow]
+  KESTRA --> AGENT[AI Agent]
+  AGENT --> SUPABASE[Supabase MCP]
+  AGENT --> SERENA[Serena MCP]
+  AGENT --> WA_MCP[WhatsApp MCP]
+  KESTRA --> DB[Supabase DB]
 ```
 
-## 🚀 Setup Rápido
+## 🔌 MCP Servers - Integração com APIs Externas
+
+O agente SDR utiliza três servidores MCP (Model Context Protocol) para integração com APIs externas. **⚠️ IMPORTANTE**: Todos os MCPs conversam via JSON-RPC 2.0 no endpoint `/mcp`, não com múltiplos paths REST.
+
+### 🎯 Padrão de Chamada JSON-RPC 2.0 (CRÍTICO)
+
+**⚠️ TODAS as chamadas MCP seguem este formato exato:**
+
+```json
+POST {{MCP_URL}}/mcp
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "<toolName>",
+    "arguments": { /* ... */ }
+  }
+}
+```
+
+**Campos Obrigatórios:**
+- `jsonrpc`: Sempre "2.0"
+- `id`: Identificador único da requisição (número)
+- `method`: Sempre "tools/call" para execução de ferramentas
+- `params.name`: Nome exato da tool (ver tabelas abaixo)
+- `params.arguments`: Objeto com parâmetros da tool
+
+### 🔍 Health Check Consistente
+
+**⚠️ IMPORTANTE**: Cada MCP server tem seu endpoint de health check:
+
+| MCP Server | Health Check URL | Método | Resposta Esperada |
+|------------|------------------|--------|-------------------|
+| **WhatsApp** | `GET /health` | HTTP GET | `{"status": "healthy"}` |
+| **Supabase** | `GET /health` | HTTP GET | `{"status": "healthy"}` |
+| **Serena** | `GET /` | HTTP GET | `{"message": "Serena MCP Server is running!"}` |
+
+**Exemplo de verificação:**
+```bash
+# WhatsApp MCP
+curl http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/health
+
+# Supabase MCP  
+curl http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/health
+
+# Serena MCP
+curl http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/
+```
+
+### 📋 Lista Completa de Tools & Assinaturas por MCP
+
+#### **WhatsApp MCP Server**
+| Tool | Parâmetros | Obrigatório | Exemplo de `arguments` |
+|------|------------|-------------|------------------------|
+| `sendTextMessage` | `to` (string), `message` (string) | ambos | `{"to": "5511999999999", "message": "Olá!"}` |
+| `sendTemplateMessage` | `to`, `templateName`, `language`, `components[]` | todos | `{"to": "5511999999999", "templateName": "welcome", "language": "pt_BR", "components": []}` |
+| `sendImageMessage` | `to`, `imageUrl`, `caption` | todos | `{"to": "5511999999999", "imageUrl": "https://example.com/img.jpg", "caption": "Confira!"}` |
+| `markMessageAsRead` | `messageId` (string) | sim | `{"messageId": "wamid.ABC123..."}` |
+
+#### **Supabase MCP Server**
+| Tool | Parâmetros | Obrigatório | Exemplo de `arguments` |
+|------|------------|-------------|------------------------|
+| `execute_sql` | `query` (string), `params` (array) | `query` | `{"query": "SELECT * FROM leads WHERE phone = $1", "params": ["5511999999999"]}` |
+| `list_tables` | — | — | `{}` |
+| `apply_migration` | `name` (string), `query` (string) | ambos | `{"name": "create_table", "query": "CREATE TABLE..."}` |
+| `get_logs` | `service` (string) | sim | `{"service": "api"}` |
+| `get_advisors` | `type` (string) | sim | `{"type": "security"}` |
+| `search_docs` | `graphql_query` (string) | sim | `{"graphql_query": "query { searchDocs..."}` |
+| `list_edge_functions` | — | — | `{}` |
+| `deploy_edge_function` | `name` (string), `files` (array) | ambos | `{"name": "func", "files": [{"name": "index.ts", "content": "..."}]}` |
+| `list_storage_buckets` | — | — | `{}` |
+
+#### **Serena MCP Server**
+| Tool | Parâmetros | Obrigatório | Exemplo de `arguments` |
+|------|------------|-------------|------------------------|
+| `consultar_areas_operacao_gd` | `cidade`, `estado`, `codigo_ibge` | nenhum | `{"cidade": "São Paulo", "estado": "SP"}` |
+| `obter_planos_gd` | `cidade`, `estado` ou `id_distribuidora` | cidade+estado OU id_distribuidora | `{"cidade": "Recife", "estado": "PE"}` |
+| `validar_qualificacao_lead` | `cidade`, `estado`, `tipo_pessoa`, `valor_conta` | todos | `{"cidade": "Recife", "estado": "PE", "tipo_pessoa": "natural", "valor_conta": 800.00}` |
+| `cadastrar_lead` | `dados_lead` (objeto completo) | sim | `{"dados_lead": {"fullName": "João", "personType": "natural", ...}}` |
+| `buscar_lead_por_id` | `id_lead` (string) | sim | `{"id_lead": "lead_123456"}` |
+| `atualizar_lead` | `id_lead`, `dados_atualizacao` | ambos | `{"id_lead": "lead_123", "dados_atualizacao": {"email": "novo@email.com"}}` |
+| `atualizar_credenciais_distribuidora` | `id_lead`, `login`, `senha` | todos | `{"id_lead": "lead_123", "login": "user", "senha": "pass"}` |
+| `criar_contrato` | `id_lead`, `plano` | ambos | `{"id_lead": "lead_123", "plano": {"id": 556, "name": "Premium"}}` |
+
+### 🔧 Variáveis de Ambiente por MCP Server
+
+#### **WhatsApp MCP Server**
+```bash
+WHATSAPP_API_TOKEN=your-whatsapp-api-token
+WHATSAPP_PHONE_NUMBER_ID=599096403294262
+WHATSAPP_BUSINESS_ACCOUNT_ID=your-business-account-id
+WHATSAPP_API_VERSION=v23.0
+PORT=45679
+NODE_ENV=production
+```
+
+#### **Supabase MCP Server**
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_your-supabase-pat
+PROJECT_REF=your-project-reference
+FEATURES=database,docs,functions,storage,debug,development
+PORT=45678
+```
+
+#### **Serena MCP Server**
+```bash
+PARTNERSHIP_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+PARTNERSHIP_API_ENDPOINT=https://partnership-service-staging.api.srna.co/
+PORT=45677
+```
+
+### 🎯 Mapeamento Função Calling ⇄ Tool MCP
+
+**⚠️ CRÍTICO**: No `ai_sdr_agent.py`, use nomes **idênticos** às tools listadas:
+
+```python
+functions = [
+    {
+        "name": "validar_qualificacao_lead",  # Serena MCP
+        "description": "Valida se lead está qualificado para energia solar",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cidade": {"type": "string"},
+                "estado": {"type": "string"},
+                "tipo_pessoa": {"type": "string"},
+                "valor_conta": {"type": "number"}
+            },
+            "required": ["cidade", "estado", "tipo_pessoa", "valor_conta"]
+        }
+    },
+    {
+        "name": "sendTextMessage",           # WhatsApp MCP
+        "description": "Envia mensagem de texto via WhatsApp",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "message": {"type": "string"}
+            },
+            "required": ["to", "message"]
+        }
+    },
+    {
+        "name": "execute_sql",               # Supabase MCP
+        "description": "Executa query SQL no Supabase",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        }
+    }
+]
+```
+
+### 📊 Registro em lead_status e sdr_logs
+
+**⚠️ OBRIGATÓRIO**: Após cada task crítica no workflow Kestra:
+
+```yaml
+# Após run_agent
+- id: update_lead_status
+  type: io.kestra.plugin.scripts.python.Script
+  description: "Atualiza lead_status com resultado do agente"
+  script: |
+    import requests
+    from kestra import Kestra
+    
+    # Dados do agente
+    lead_id = "{{ trigger.body.lead_id }}"
+    qualification_score = "{{ outputs.run_agent.vars.qualification_score }}"
+    response_time_ms = "{{ outputs.run_agent.vars.response_time_ms }}"
+    
+    # Chamada Supabase MCP
+    response = requests.post("{{ vars.SUPABASE_MCP_URL }}/mcp", json={
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "execute_sql",
+        "arguments": {
+                "query": """
+                INSERT INTO lead_status (lead_id, qualification_score, response_time_ms, timestamp)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (lead_id) DO UPDATE SET
+                    qualification_score = EXCLUDED.qualification_score,
+                    response_time_ms = EXCLUDED.response_time_ms,
+                    timestamp = NOW()
+                """,
+                "params": [lead_id, qualification_score, response_time_ms]
+            }
+        }
+    })
+    
+    Kestra.outputs({"status_updated": True})
+
+# Após cada task crítica
+- id: log_sdr_step
+  type: io.kestra.plugin.scripts.python.Script
+  description: "Registra execução no sdr_logs"
+  script: |
+    import requests
+    from kestra import Kestra
+    
+    task_name = "{{ task.id }}"
+    lead_id = "{{ trigger.body.lead_id }}"
+    success = "{{ outputs[task.id].vars.success }}" if "{{ outputs[task.id].vars.success }}" else True
+    
+    response = requests.post("{{ vars.SUPABASE_MCP_URL }}/mcp", json={
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+            "name": "execute_sql",
+        "arguments": {
+                "query": """
+                INSERT INTO sdr_logs (lead_id, task_name, success, created_at)
+                VALUES ($1, $2, $3, NOW())
+                """,
+                "params": [lead_id, task_name, success]
+            }
+        }
+    })
+    
+    Kestra.outputs({"logged": True})
+```
+
+### ⚡ Políticas de Retry & Timeout
+
+**⚠️ IMPLEMENTE em cada task Kestra:**
+
+```yaml
+# Para chamadas críticas (OpenAI, MCP)
+  retries:
+    maxAttempts: 3
+    backoff:
+      type: EXPONENTIAL
+      delay: PT1S
+timeout: PT15S
+
+# Para WhatsApp (rate limiting)
+retries:
+  maxAttempts: 2
+  backoff:
+    type: LINEAR
+    delay: PT5S
+timeout: PT10S
+
+# Para Supabase (banco de dados)
+retries:
+  maxAttempts: 3
+  backoff:
+    type: EXPONENTIAL
+    delay: PT1S
+timeout: PT15S
+```
+
+### 🔧 Configuração Cursor AI MCP Registration
+
+**⚠️ PARA DESENVOLVIMENTO**: Adicione ao `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-supabase"],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "sbp_your-supabase-pat",
+        "PROJECT_REF": "your-project-reference",
+        "FEATURES": "database,docs,functions,storage,debug,development"
+      }
+    },
+    "serena": {
+      "command": "python",
+      "args": ["servidor_parcerias_mcp.py"],
+      "env": {
+        "PARTNERSHIP_API_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "PARTNERSHIP_API_ENDPOINT": "https://partnership-service-staging.api.srna.co/"
+      }
+    },
+    "whatsapp": {
+      "command": "npx",
+      "args": ["-y", "@mattcoatsworth/whatsapp-mcp-server"],
+      "env": {
+        "WHATSAPP_API_TOKEN": "your-whatsapp-api-token",
+        "WHATSAPP_PHONE_NUMBER_ID": "599096403294262",
+        "WHATSAPP_BUSINESS_ACCOUNT_ID": "your-business-account-id"
+      }
+    }
+  }
+}
+```
+
+### 🌐 Configuração de URLs no Ambiente
+
+**⚠️ CRÍTICO**: As URLs dos MCP servers são configuradas via variáveis de ambiente:
 
 ```bash
-# 1. Clone o projeto
-git clone <repo-url>
-cd serena-qualifier
+# URLs dos MCP Servers (uniforme em UPPERCASE)
+WHATSAPP_MCP_URL=http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/
+SUPABASE_MCP_URL=http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/
+SERENA_MCP_URL=http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/
 
-# 2. Configure ambiente
-cp .env.example .env
-# Edite .env com suas credenciais
+# Health Check URLs (uniforme em UPPERCASE)
+WHATSAPP_MCP_HEALTH=http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/health
+SUPABASE_MCP_HEALTH=http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/health
+SERENA_MCP_HEALTH=http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/
+```
 
-# 3. Instale dependências
-pip install -r requirements.txt
+## 🛠️ Tech Stack
 
-# 4. Teste estrutura
-python test_serena_agent_structure.py
+| Componente | Tecnologia |
+|------------|------------|
+| **Orquestração** | Kestra (self-hosted em Coolify) |
+| **IA** | OpenAI GPT-4 (Function Calling) |
+| **Banco de Dados** | Supabase (PostgreSQL) |
+| **OCR** | OpenAI Vision (GPT-4) |
+| **WhatsApp** | WhatsApp Business Cloud API |
+| **MCP Servers** | Supabase, Serena, WhatsApp |
+| **Monitoramento** | Logs Kestra + Métricas Supabase |
 
-# 5. Execute stack completa
+## 📁 Estrutura do Projeto
+
+```
+serena-sdr/
+├── workflows/           # Workflows Kestra
+│   ├── 1_lead_activation_flow.yml
+│   └── 2_sdr_conversation_flow.yml
+├── scripts/            # Código Python
+│   ├── ai_sdr_agent.py
+│   ├── follow_up_agent.py
+│   ├── classify_media.py
+│   ├── agent_tools/    # Ferramentas do agente
+│   └── utils/          # Utilitários
+├── config/             # Configurações
+│   └── env/           # Variáveis de ambiente
+├── docs/              # Documentação
+├── tests/             # Testes
+├── docker-compose.yml # Ambiente Docker
+└── requirements.txt   # Dependências Python
+```
+
+## 🚀 Instalação e Configuração
+
+### 1. Pré-requisitos
+
+- Docker e Docker Compose
+- Python 3.11+
+- Acesso aos MCP Servers
+- Kestra self-hosted em Coolify
+
+### 2. Configuração do Ambiente
+
+```bash
+# Clone o repositório
+git clone <repository-url>
+cd serena-sdr
+
+# Copie o arquivo de exemplo
+cp config/env/env.example .env
+
+# Edite as variáveis de ambiente
+nano .env
+```
+
+### 3. Configuração das Variáveis de Ambiente
+
+```bash
+# OpenAI
+OPENAI_API_KEY=sk-your-openai-api-key
+OPENAI_MODEL=gpt-4o
+OPENAI_MAX_TOKENS=1500
+
+# MCP Servers
+WHATSAPP_MCP_URL=http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/
+SUPABASE_MCP_URL=http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/
+SERENA_MCP_URL=http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/
+
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+
+# Serena API
+SERENA_API_TOKEN=your-serena-api-token
+
+# WhatsApp
+WHATSAPP_API_TOKEN=your-whatsapp-api-token
+WHATSAPP_PHONE_NUMBER_ID=599096403294262
+
+# Kestra
+KESTRA_URL=https://kestra.darwinai.com.br/ui/
+KESTRA_NAMESPACE=serena.production
+```
+
+### 4. Configuração dos MCP Servers para o Agente SDR
+
+Os MCP servers são utilizados diretamente pelo agente SDR (`ai_sdr_agent.py`) através de HTTP requests. O agente faz chamadas JSON-RPC para os servidores MCP para executar suas funções.
+
+**Configuração no Agente SDR:**
+```python
+# URLs dos MCP Servers configuradas no agente
+SUPABASE_MCP_URL = "http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/"
+SERENA_MCP_URL = "http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/"
+WHATSAPP_MCP_URL = "http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/"
+
+# Exemplo de chamada MCP no agente
+def call_mcp(self, name, args):
+    if name == "execute_sql":
+        url = f"{SUPABASE_MCP_URL}/mcp"
+    elif name == "validar_qualificacao_lead":
+        url = f"{SERENA_MCP_URL}/mcp"
+    elif name == "sendTextMessage":
+        url = f"{WHATSAPP_MCP_URL}/mcp"
+    
+    response = requests.post(url, json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": name,
+            "arguments": args
+        }
+    })
+    return response.json()
+```
+
+**⚠️ Importante**: 
+- Os MCP servers são utilizados apenas pelo agente SDR, não pelo Cursor AI
+- As URLs dos servidores MCP devem estar configuradas nas variáveis de ambiente do agente
+- O agente SDR faz chamadas HTTP diretas para os servidores MCP
+
+### 5. Iniciar os Serviços
+
+```bash
+# Iniciar todos os serviços
 docker-compose up -d
+
+# Verificar status
+docker-compose ps
+
+# Logs em tempo real
+docker-compose logs -f
 ```
 
-## 🔄 Fluxo de Dados do Lead (NOVO)
+## 🔧 Desenvolvimento
 
-O sistema agora implementa um fluxo de dados otimizado para leads:
+### Blueprints de Referência
 
-### 🔧 Como Funciona:
-1. **Formulário Landing Page**: Usuário preenche dados (nome, email, telefone, cidade, estado)
-2. **Lead Activation**: `1_lead_activation_flow.yml` salva dados no Supabase
-3. **Botão "Ativar Perfil"**: Usuário clica no botão no WhatsApp
-4. **Consulta Automática**: IA usa `consultar_dados_lead` para obter dados já salvos
-5. **Busca de Planos**: IA usa `buscar_planos_de_energia_por_localizacao` com cidade/estado já salvos
-6. **Resposta Personalizada**: IA apresenta planos disponíveis sem pedir informações redundantes
+Antes de implementar, consulte os seguintes blueprints Kestra:
 
-### 📱 Exemplo de Resposta:
-```
-Olá, Leonardo! Eu sou a Sílvia, da Serena Energia. É um prazer te receber!
+1. **"Chat with Elasticsearch Data"** - Busca semântica + chat via OpenAI
+2. **"Use HuggingFace API para Classificar Mensagem"** - Classificação de conteúdo
+   - **Link**: https://kestra.io/blueprints/use-huggingface-api-to-classify-message
+   - **Uso**: Classificar se mensagem é imagem ou texto antes do OCR
+   - **Output**: `is_image: boolean` para determinar se processar OCR
+3. **"Wait & Remind"** - Pattern de follow-up automático
+4. **OpenAI Cookbook "Deep Research API Agents"** - Multi-tool agent
 
-Vejo que você está em Recife/PE. Deixe-me verificar os planos disponíveis para sua região...
+### Estrutura do Workflow Kestra
 
-Ótimas notícias! Encontrei 3 planos disponíveis da CELPE para Recife:
-1. Plano Básico-14% - Desconto: 14% - Fidelidade: 0 meses
-2. Plano Intermediário-16% - Desconto: 16% - Fidelidade: 36 meses
-3. Plano Premium-18% - Desconto: 18% - Fidelidade: 60 meses - Benefício: 1ª fatura paga pela Serena
+#### 1. Lead Activation Flow (`1_lead_activation_flow.yml`)
 
-Qual desses planos mais te interessa?
-```
-
-## 🔘 Processamento de Botões WhatsApp (NOVO)
-
-O sistema agora detecta e processa corretamente interações com botões do WhatsApp:
-
-### 🔧 Como Funciona:
-1. **Detecção de Botões**: Identifica mensagens do tipo "button" do WhatsApp
-2. **Extração de Contexto**: Extrai informações relevantes do botão clicado
-3. **Processamento Específico**: Trata cada tipo de botão de forma personalizada
-4. **Resposta Contextual**: Gera respostas específicas para cada tipo de interação
-
-### 🎯 Botões Suportados:
-- **Ativar Perfil**: Inicia o cadastro e busca planos disponíveis
-- **Mensagens de Tipo Button**: Detecta formato especial do webhook
-- **Botões Genéricos**: Suporte para outros tipos de botões interativos
-
-## ⏰ Funcionalidade de Lembrete por Timeout (NOVO)
-
-O sistema agora inclui **lembrete automático** para leads que não respondem:
-
-### 🔧 Como Funciona:
-1. **Primeira Mensagem**: IA envia resposta inicial ao lead
-2. **WaitForWebhook**: Aguarda resposta por **2 horas**
-3. **Timeout Atingido**: Envia lembrete automático personalizado
-4. **Resposta Antes Timeout**: Cancela lembrete e continua conversa
-
-### 📱 Mensagem de Lembrete:
-```
-Oi! 😊
-
-Notei que você não respondeu nossa conversa anterior sobre energia solar.
-
-Ainda tem interesse em economizar na conta de luz? Posso te ajudar a encontrar o melhor plano para sua região! ⚡
-
-É só me responder que continuamos de onde paramos! 👍
+```yaml
+tasks:
+  # ... outras tarefas ...
+  
+  - id: send-whatsapp-template
+    type: io.kestra.plugin.scripts.python.Script
+    # ... envio do template ...
+    
+  - id: update_initial_template_sent
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Marca flag initial_template_sent = true após envio do template"
+    runIf: "{{ outputs['send-whatsapp-template'].vars.template_sent == true }}"
+    script: |
+      import psycopg2
+      import os
+      from kestra import Kestra
+      
+      # Conectar ao Supabase
+      conn = psycopg2.connect(os.getenv('SECRET_DB_CONNECTION_STRING'))
+      cur = conn.cursor()
+      
+      # Atualizar flag
+      cur.execute("""
+        UPDATE leads 
+        SET initial_template_sent = true, updated_at = NOW()
+        WHERE phone_number = %s
+      """, ("{{ trigger.body.whatsapp }}",))
+      
+      conn.commit()
+      cur.close()
+      conn.close()
+      
+      Kestra.outputs({"initial_template_sent": True})
 ```
 
-## 🧠 Funcionalidade RAG para Dúvidas Gerais (NOVO)
+#### 2. SDR Conversation Flow (`2_sdr_conversation_flow.yml`)
 
-O sistema agora inclui **RAG (Retrieval-Augmented Generation)** para responder dúvidas gerais sobre energia solar:
+**⚠️ IMPORTANTE**: As métricas são alimentadas em momentos específicos:
 
-### 🔧 Como Funciona:
-1. **Knowledge Base**: Base curada com FAQ sobre energia solar e Serena Energia
-2. **Busca Semântica**: FAISS + OpenAI embeddings para encontrar informações relevantes
-3. **Geração Contextual**: LLM gera respostas baseadas no contexto recuperado
-4. **Threshold Inteligente**: Apenas respostas com alta relevância (>0.7) são utilizadas
+- **`response_time_ms`**: Calculado no `run_agent` e registrado via `log_sdr_step`
+- **`qualification_score`**: Definido após `validar_qualificacao_lead` via Serena MCP
+- **`follow_up_sent`**: Marcado após `follow_up_if_needed` ser executado
+- **`contract_created`**: Definido após `criar_contrato` via Serena MCP
 
-### 🎯 Casos de Uso:
-- **Dúvidas Gerais**: "O que é energia solar?", "Como funciona?", "Quais os benefícios?"
-- **Sobre a Serena**: "Como a Serena funciona?", "Qual o processo de instalação?"
-- **Educacional**: Informações técnicas sobre energia fotovoltaica
+```yaml
+triggers:
+  - id: whatsapp_sdr_trigger
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: converse_sdr_silvia
 
-## 🤖 Serena SDR - Agente Virtual de Pré-vendas (NOVO)
+tasks:
+  - id: log_inicial
+    type: io.kestra.plugin.core.log.Log
+    
+  - id: extract_media_id
+    type: io.kestra.plugin.scripts.python.Script
+    
+  - id: classify_media
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Classifica se é imagem ou texto usando HuggingFace API"
+    script: "{{ read('scripts/classify_media.py') }}"
+    # Executa logo após extract_media_id e antes de run_agent
+    # Output: Kestra.outputs({'is_image': bool})
+    
+  - id: get_lead_data
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ vars.SUPABASE_MCP_URL }}/mcp"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: |
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "execute_sql",
+          "arguments": {
+            "query": "SELECT * FROM leads WHERE phone_number = $1",
+            "params": ["{{ trigger.body.phone }}"]
+          }
+        }
+      }
+    retries:
+      maxAttempts: 3
+      backoff:
+        type: EXPONENTIAL
+        delay: PT1S
+    allowFailure: true
+    
+  - id: run_agent
+    type: io.kestra.plugin.scripts.python.Script
+    script: "{{ read('scripts/ai_sdr_agent.py') }}"
+    env:
+      LEAD_DATA: "{{ outputs.get_lead_data.body }}"
+      MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id }}"
+      IS_IMAGE: "{{ outputs.classify_media.vars.is_image }}"
+    
+  - id: send_whatsapp
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ vars.WHATSAPP_MCP_URL }}/mcp"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: |
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "sendTextMessage",
+          "arguments": {
+            "to": "{{ trigger.body.phone }}",
+            "message": "{{ outputs.run_agent.vars.response }}"
+          }
+        }
+      }
+    retries:
+      maxAttempts: 2
+      backoff:
+        type: LINEAR
+        delay: PT5S
+    allowFailure: true
+    
+  - id: wait_2h
+    type: io.kestra.plugin.core.conds.Wait
+    duration: PT2H
+    
+  - id: check_response
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ vars.WHATSAPP_MCP_URL }}/mcp"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: |
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "list_messages",
+          "arguments": {
+            "phone": "{{ trigger.body.phone }}"
+          }
+        }
+      }
+    
+  - id: follow_up_if_needed
+    type: io.kestra.plugin.scripts.python.Script
+    script: "{{ read('scripts/follow_up_agent.py') }}"
+    runIf: "{{ outputs.check_response.body.messages | length == 0 }}"
+    # Se messages.length > 0, o lembrete é automaticamente ignorado
 
-O sistema agora inclui o **Serena SDR** - um agente virtual inteligente para pré-vendas de energia solar:
+errors:
+  - id: global_error_handler
+    type: io.kestra.plugin.core.log.Log
+    level: ERROR
+    
+  - id: send_fallback_message
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ vars.WHATSAPP_MCP_URL }}/mcp"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    runIf: "{{ _error != null }}"
+    body: |
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "sendTextMessage",
+          "arguments": {
+        "to": "{{ trigger.body.phone }}",
+            "message": "Desculpe, tivemos um problema técnico. Retornarei em breve. 😊"
+          }
+        }
+      }
+```
 
-### 🎯 Funcionalidades Principais:
-- **Conversação Natural**: Agente IA conversacional (Sílvia) para pré-vendas
-- **Classificação de Mídia**: Detecta automaticamente texto vs. imagem
-- **OCR de Faturas**: Processamento inteligente de contas de energia
-- **Follow-up Automático**: Lembretes automáticos após 2 horas sem resposta
-- **Qualificação de Leads**: Validação automática baseada em critérios de consumo
-- **Integração MCP**: Comunicação via Model Context Protocol com serviços externos
+### Lógica de Primeiro Contato
 
-### 🔧 Arquitetura SDR:
-- **Workflow Principal**: `2_sdr_conversation_flow.yml` - Orquestração completa
-- **Agente IA**: `ai_sdr_agent.py` - Lógica conversacional principal
-- **Classificação**: `classify_media.py` - Detecção de tipo de mídia
-- **Follow-up**: `follow_up_agent.py` - Geração de lembretes automáticos
-- **MCP Servers**: Supabase, Serena API, WhatsApp Business API
+O agente verifica automaticamente se é a primeira interação:
 
-### 📱 Fluxo de Conversação:
-1. **Recebimento**: Webhook WhatsApp recebe mensagem
-2. **Classificação**: Sistema identifica se é texto ou imagem
-3. **Processamento**: 
-   - **Texto**: Conversação direta com IA
-   - **Imagem**: OCR + qualificação de fatura
-4. **Resposta**: Mensagem personalizada via WhatsApp
-5. **Follow-up**: Lembrete automático após 2h (se necessário)
+1. **Task Kestra `get_lead_data`**: HTTP Request ao Supabase MCP retorna dados do lead incluindo `initial_template_sent`
+2. **Função OpenAI `get_lead_data`**: Invocada pelo agente para buscar dados adicionais
+3. **Decisão de Saudação**: 
+   - Se `initial_template_sent = true` → Vai direto para qualificação
+   - Se `initial_template_sent = false` → Envia saudação inicial
+4. **Sem KV Store**: Toda lógica baseada no banco de dados Supabase
 
-## 🔍 Processamento Inteligente de Contas de Energia (NOVO)
+### Agente Conversacional
 
-O sistema agora inclui **OCR avançado** para processamento automático de contas de energia:
+O `ai_sdr_agent.py` implementa OpenAI Function Calling com as seguintes funções:
 
-### 🔧 Como Funciona:
-1. **Detecção Automática**: Identifica quando uma imagem é conta de energia vs. conversa geral
-2. **Extração Estruturada**: Extrai dados específicos: nome, distribuidora, valor, consumo, endereço
-3. **Validação Robusta**: 8 critérios de validação com score de confiança 0-100%
-4. **Qualificação Inteligente**: Qualifica leads automaticamente (mínimo R$ 200/mês)
-5. **Respostas Personalizadas**: Gera respostas contextuais baseadas nos dados extraídos
+```python
+functions = [
+    {
+        "name": "get_lead_data",
+        "description": "Retorna dados do lead pelo ID",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lead_id": {"type": "string"}
+            },
+            "required": ["lead_id"]
+        }
+    },
+    {
+        "name": "get_energy_plans",
+        "description": "Lista planos de GD para cidade/estado",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"},
+                "state": {"type": "string"}
+            },
+            "required": ["city", "state"]
+        }
+    },
+    {
+        "name": "process_energy_bill_image",
+        "description": "OCR de imagem de fatura retorna JSON",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "image_url": {"type": "string"}
+            },
+            "required": ["image_url"]
+        }
+    },
+    {
+        "name": "send_whatsapp_message",
+        "description": "Envia mensagem via WhatsApp MCP",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "text": {"type": "string"}
+            },
+            "required": ["to", "text"]
+        }
+    },
+    {
+        "name": "create_contract",
+        "description": "Cria contrato na API Serena",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lead_id": {"type": "string"},
+                "plan_id": {"type": "string"}
+            },
+            "required": ["lead_id", "plan_id"]
+        }
+    }
+]
+```
 
-### 🏢 Distribuidoras Suportadas:
-- **20+ Distribuidoras**: CEMIG, ENEL, LIGHT, CPFL, ELEKTRO, COELBA, CELPE, COSERN, COELCE, CELG, CEB, COPEL, RGE, CEEE, CELESC, ENERGISA, AMPLA, BANDEIRANTE, PIRATININGA, AES SUL
+### Follow-up Automático
+
+O `follow_up_agent.py` implementa o pattern "Wait & Remind":
+
+```python
+class FollowUpAgent:
+    def generate_follow_up(self, lead_id, phone_number, lead_data):
+        # Gera lembrete personalizado usando OpenAI
+        # Chama WhatsApp MCP para enviar
+        # Registra no lead_status
+        pass
+```
+
+**Scripts Auxiliares**:
+
+#### `classify_media.py`
+**Função**: Classifica o tipo de mídia recebida (imagem vs texto)
+**Input**:
+- `message_type` (string): Tipo da mensagem ("text", "image", "document")
+- `media_id` (string, opcional): ID da mídia se disponível
+- `message_text` (string, opcional): Texto da mensagem
+
+**Output**:
+```json
+{
+  "media_type": "image|text|document",
+  "is_energy_bill": true|false,
+  "confidence": 0.95,
+  "extracted_text": "string (se aplicável)",
+  "processing_required": true|false
+}
+```
+
+#### `follow_up_agent.py`
+**Função**: Gera mensagem de follow-up quando não há resposta em 2h
+**Input**:
+- `lead_id` (string): ID do lead
+- `last_message` (string): Última mensagem enviada
+- `conversation_context` (object): Contexto da conversa
+- `follow_up_type` (string): Tipo de follow-up ("reminder", "offer", "closing")
+
+**Output**:
+```json
+{
+  "follow_up_message": "string",
+  "follow_up_type": "reminder|offer|closing",
+  "should_continue": true|false,
+  "next_action": "wait|close|escalate"
+}
+```
+
+#### `extract_media_id.py`
+**Função**: Extrai media_id do payload do webhook WhatsApp
+**Input**:
+- `webhook_payload` (object): Payload completo do webhook
+
+**Output**:
+```json
+{
+  "media_id": "string|null",
+  "message_type": "text|image|document",
+  "extraction_success": true|false
+}
+```
+
+## 📊 Persistência e Métricas
+
+### Tabelas Supabase
+
+```sql
+-- Tabela principal de leads
+CREATE TABLE leads (
+    id SERIAL PRIMARY KEY,
+    phone_number VARCHAR UNIQUE NOT NULL,
+    name VARCHAR NOT NULL,
+    invoice_amount DECIMAL(10,2),
+    client_type VARCHAR,
+    city VARCHAR,
+    state VARCHAR,
+    additional_data JSONB,
+    initial_template_sent BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Tabela de status e métricas do SDR
+CREATE TABLE lead_status (
+    lead_id VARCHAR PRIMARY KEY,
+    status VARCHAR NOT NULL,
+    timestamp TIMESTAMP DEFAULT NOW(),
+    notes TEXT,
+    bill_amount DECIMAL(10,2),
+    qualification_score INTEGER,
+    response_time_ms INTEGER,
+    follow_up_sent BOOLEAN DEFAULT FALSE,
+    contract_created BOOLEAN DEFAULT FALSE
+);
+
+-- Tabela de logs para métricas
+CREATE TABLE sdr_logs (
+    id SERIAL PRIMARY KEY,
+    lead_id VARCHAR,
+    task_name VARCHAR,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    duration_ms INTEGER,
+    success BOOLEAN,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Métricas Alvo
+
+```sql
+-- Tempo médio de resposta IA
+SELECT AVG(response_time_ms) / 1000.0 as avg_response_time_seconds
+FROM lead_status 
+WHERE response_time_ms IS NOT NULL;
+
+-- Taxa de leads qualificados
+SELECT 
+    COUNT(*) FILTER (WHERE qualification_score >= 1) * 100.0 / COUNT(*) as qualification_rate
+FROM lead_status;
+
+-- TTL de follow-up
+SELECT AVG(EXTRACT(EPOCH FROM (timestamp - created_at))) / 3600 as avg_followup_hours
+FROM lead_status 
+WHERE follow_up_sent = true;
+
+-- Taxa de conversão para contrato
+SELECT 
+    COUNT(*) FILTER (WHERE contract_created = true) * 100.0 / COUNT(*) as conversion_rate
+FROM lead_status;
+```
+
+### Dashboard Supabase
+
+Configure visualizações no Supabase Dashboard:
+
+1. **Métricas Gerais**: Taxa de qualificação, tempo de resposta
+2. **Performance**: Gráfico de tempo de resposta por período
+3. **Conversões**: Funnel de leads → qualificados → contratos
+4. **Erros**: Logs de falhas e retry attempts
+
+### Políticas de Retry & Fallback
+
+#### Retry Policies para Chamadas Críticas:
+
+**OpenAI API Calls:**
+- **Máximo de tentativas**: 3
+- **Backoff exponencial**: 1s, 2s, 4s
+- **Timeout**: 30 segundos por tentativa
+- **Fallback**: Mensagem genérica se todas as tentativas falharem
+
+**MCP Server Calls:**
+- **Máximo de tentativas**: 3
+- **Backoff exponencial**: 1s, 2s, 4s
+- **Timeout**: 15 segundos por tentativa
+- **Fallback**: Log de erro e continuação do workflow
+
+**WhatsApp API Calls:**
+- **Máximo de tentativas**: 2
+- **Backoff linear**: 5s, 10s
+- **Timeout**: 10 segundos por tentativa
+- **Fallback**: Mensagem de erro técnica para o lead
+
+#### Implementação no Agente SDR:
+
+```python
+def call_mcp_with_retry(self, name, args, max_retries=3, base_delay=1):
+    """Chama MCP server com retry exponencial"""
+    for attempt in range(max_retries):
+        try:
+            response = self.call_mcp(name, args)
+            if response.get('success', True):
+                return response
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            delay = base_delay * (2 ** attempt)
+            time.sleep(delay)
+    return None
+```
+
+#### Fallback Messages:
+
+**Erro no Agente IA:**
+```
+"Olá! Sou a Sílvia da Serena Energia. 😊 No momento estou com dificuldades técnicas. Por favor, tente novamente em alguns minutos ou entre em contato conosco pelo nosso canal oficial. Obrigada pela compreensão!"
+```
+
+**Erro no Envio WhatsApp:**
+```
+"Desculpe, tivemos um problema técnico. Retornarei em breve. 😊"
+```
+
+### Logging de Etapas Críticas
+
+Após cada etapa crítica, o workflow registra no `sdr_logs` e `lead_status`. **⚠️ IMPORTANTE**: O script `log_sdr_step` pré-configura `vars.response_time_ms` via saída do agente.
+
+#### Registro em `sdr_logs`:
+```yaml
+- id: log_sdr_step
+  type: io.kestra.plugin.scripts.python.Script
+  description: "Registra execução da etapa no sdr_logs"
+  script: |
+    import os
+    import time
+    from kestra import Kestra
+    
+    # Dados da execução
+    task_name = "{{ task.id }}"
+    lead_id = "{{ trigger.body.lead_id }}"
+    start_time = "{{ execution.startDate }}"
+    end_time = time.time()
+    duration_ms = int((end_time - start_time) * 1000)
+    success = "{{ outputs[task.id].vars.success }}" if "{{ outputs[task.id].vars.success }}" else True
+    
+    # Log para Supabase MCP
+    log_data = {
+        "lead_id": lead_id,
+        "task_name": task_name,
+        "start_time": start_time,
+        "end_time": end_time,
+        "duration_ms": duration_ms,
+        "success": success,
+        "error_message": "{{ _error }}" if "{{ _error }}" else None
+    }
+    
+    # Chamada para Supabase MCP
+    import requests
+    requests.post("{{ vars.SUPABASE_MCP_URL }}/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "execute_sql",
+            "arguments": {
+                "query": """
+                INSERT INTO sdr_logs (lead_id, task_name, start_time, end_time, duration_ms, success, error_message)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                "params": [lead_id, task_name, start_time, end_time, duration_ms, success, log_data["error_message"]]
+            }
+        }
+    })
+    
+    Kestra.outputs({"logged": True})
+```
+
+#### Registro em `lead_status`:
+```yaml
+- id: update_lead_status
+  type: io.kestra.plugin.scripts.python.Script
+  description: "Atualiza status do lead no lead_status"
+  script: |
+    import os
+    from kestra import Kestra
+    
+    lead_id = "{{ trigger.body.lead_id }}"
+    status = "{{ vars.status }}"  # "processing", "qualified", "contract_created", "error"
+    notes = "{{ vars.notes }}" if "{{ vars.notes }}" else None
+    bill_amount = "{{ vars.bill_amount }}" if "{{ vars.bill_amount }}" else None
+    qualification_score = "{{ vars.qualification_score }}" if "{{ vars.qualification_score }}" else None
+    response_time_ms = "{{ vars.response_time_ms }}" if "{{ vars.response_time_ms }}" else None
+    
+    # Chamada para Supabase MCP
+    import requests
+    requests.post("{{ vars.SUPABASE_MCP_URL }}/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "execute_sql",
+            "arguments": {
+                "query": """
+                INSERT INTO lead_status (lead_id, status, notes, bill_amount, qualification_score, response_time_ms)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (lead_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    notes = EXCLUDED.notes,
+                    bill_amount = EXCLUDED.bill_amount,
+                    qualification_score = EXCLUDED.qualification_score,
+                    response_time_ms = EXCLUDED.response_time_ms,
+                    timestamp = NOW()
+                """,
+                "params": [lead_id, status, notes, bill_amount, qualification_score, response_time_ms]
+            }
+        }
+    })
+    
+    Kestra.outputs({"status_updated": True})
+```
+
+**⚠️ POSICIONAMENTO**: Esta task deve ser executada logo após `run_agent` ou `follow_up_if_needed` para registrar o status atualizado.
+
+## 🐳 Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  # MCP Supabase Server
+  supabase-mcp:
+    image: node:18-alpine
+    container_name: serena-sdr-supabase-mcp
+    working_dir: /app
+    command: >
+      sh -c "npm install -g @modelcontextprotocol/server-supabase &&
+             mcp-server-supabase"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    ports:
+      - "3001:3001"
+    networks:
+      - serena-sdr-network
+    restart: unless-stopped
+
+  # MCP Serena Server
+  serena-mcp:
+    image: node:18-alpine
+    container_name: serena-sdr-serena-mcp
+    working_dir: /app
+    command: >
+      sh -c "npm install -g @serena/mcp-server &&
+             serena-mcp-server"
+    environment:
+      - SERENA_API_TOKEN=${SERENA_API_TOKEN}
+    ports:
+      - "3002:3002"
+    networks:
+      - serena-sdr-network
+    restart: unless-stopped
+
+  # MCP WhatsApp Server
+  whatsapp-mcp:
+    image: node:18-alpine
+    container_name: serena-sdr-whatsapp-mcp
+    working_dir: /app
+    command: >
+      sh -c "npm install -g @mattcoatsworth/whatsapp-mcp-server &&
+             whatsapp-mcp-server"
+    environment:
+      - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN}
+      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
+    ports:
+      - "3003:3003"
+    networks:
+      - serena-sdr-network
+    restart: unless-stopped
+
+  # Kestra Agent
+  kestra-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: serena-sdr-kestra-agent
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SUPABASE_MCP_URL=http://supabase-mcp:3001
+      - SERENA_MCP_URL=http://serena-mcp:3002
+      - WHATSAPP_MCP_URL=http://whatsapp-mcp:3003
+    volumes:
+      - ./scripts:/app/scripts
+      - ./config:/app/config
+    networks:
+      - serena-sdr-network
+    restart: unless-stopped
+    depends_on:
+      - supabase-mcp
+      - serena-mcp
+      - whatsapp-mcp
+
+networks:
+  serena-sdr-network:
+    driver: bridge
+    name: serena-sdr-network
+```
 
 ## 🧪 Testes
 
+### Testes Unitários
+
 ```bash
-# Testes de estrutura e API
-python test_serena_agent_structure.py
-python test_serena_api_detailed.py
+# Instalar dependências de teste
+pip install -r requirements.txt
 
-# Testes de botões e interações
-python test_button_message_type.py
-python test_ativar_perfil_button.py
-python test_lead_data_flow.py
+# Executar testes unitários
+pytest tests/unit/
 
-# Testes de funcionalidade RAG
-pytest tests/test_rag_functionality.py -v
-
-# Testes de OCR inteligente
-pytest tests/test_ocr_structured_extraction.py -v
-
-# 🆕 Testes End-to-End SDR
-pytest tests/e2e/ -v
-
-# Testes específicos SDR
-pytest tests/e2e/test_text_message_flow.py -v
-pytest tests/e2e/test_energy_bill_ocr_flow.py -v
-pytest tests/e2e/test_follow_up_flow.py -v
-pytest tests/e2e/test_fallback_and_metrics.py -v
-
-# Verificação de MCP Servers
-python scripts/verify_mcp_servers.py
+# Executar testes de integração
+pytest tests/integration/
 ```
 
-## 📊 SLAs de Performance e Latência
+### Teste E2E
 
-O sistema foi projetado e validado para atender rígidos acordos de nível de serviço (SLAs) de latência:
-
-### 🔍 SLAs Definidos:
-- **Lead Activation**: < 3 segundos para processamento completo do workflow
-- **Resposta da IA**: < 15 segundos para análise completa, < 20 segundos para resposta LangChain
-- **Envio WhatsApp**: < 5 segundos incluindo retries
-- **Webhook Response**: < 200ms para API de webhook WhatsApp
-
-### 📈 Métricas Atuais (Ambiente de Produção):
-- **Tempo médio lead-activation**: 1.23s (SLA: < 3s)
-- **Taxa de sucesso**: 99.8% de mensagens entregues dentro do SLA
-- **Latência p95**: 2.1s (95% das requisições abaixo desse valor)
-
-## 📋 Status Desenvolvimento
-
-- ✅ **TASK 1**: Framework LangChain complementar implementado
-- ✅ **TASK 2**: LangChain real funcionando com AgentExecutor ativo
-- ✅ **TASK 3**: Workflows Kestra otimizados e casos avançados
-- ✅ **TASK 4**: Integração real com API Serena (dados reais)
-- ✅ **TASK 5**: Funcionalidade de Lembrete por Timeout
-- ✅ **TASK 6**: Processamento de botões WhatsApp (NOVO 🔘)
-- ✅ **TASK 7**: Fluxo de dados do lead otimizado (NOVO 🔄)
-- ✅ **OBJETIVO 1**: Funcionalidade RAG para Dúvidas Gerais
-- ✅ **OBJETIVO 2**: Processamento Inteligente de Contas de Energia
-
-**🚀 SISTEMA COMPLETO E OPERACIONAL COM PROCESSAMENTO DE BOTÕES + FLUXO DE DADOS OTIMIZADO + RAG + OCR INTELIGENTE!**
-
-### 🎯 Funcionalidades Ativas:
-- **AgentExecutor LangChain** com OpenAI GPT-4o-mini
-- **5 Tools reais**: Supabase + API Serena + OCR + RAG + Processamento de Botões (NOVO 🔘)
-- **Modo híbrido**: LangChain + prompts otimizado
-- **Workflows Kestra v6**: Análise inteligente + Timeout/Lembrete
-- **Detecção de Botões**: Processamento inteligente de interações WhatsApp (NOVO 🔘)
-- **Fluxo de Dados Otimizado**: Uso de dados já salvos no Supabase (NOVO 🔄)
-- **RAG Inteligente**: Base de conhecimento + busca semântica
-- **OCR Avançado**: Processamento automático de contas de energia
-- **Detecção Contextual**: Identifica automaticamente imagens de contas vs. conversas
-- **Qualificação Automática**: Valida leads baseado em critérios de consumo/valor
-- **Respostas personalizadas**: Adaptativas por categoria (premium/qualificado)
-- **Analytics avançados**: Métricas de performance e conversão
-- **100% compatibilidade** com workflows Kestra existentes
-
-## 📚 Documentação
-
-- [`PLANNING.md`](PLANNING.md) - Planejamento arquitetural
-- [`TASK.md`](TASK.md) - Tarefas específicas e progresso
-- [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) - Guia completo implementação
-- [`BUTTON_MESSAGE_TYPE_FIX.md`](BUTTON_MESSAGE_TYPE_FIX.md) - Correção para mensagens de botão (NOVO 🔘)
-- [`LEAD_DATA_FLOW_FIX.md`](LEAD_DATA_FLOW_FIX.md) - Otimização do fluxo de dados do lead (NOVO 🔄)
-
-## 🐳 Configuração Docker
-
-### 📦 Serviços Principais:
-- **postgres**: Banco de dados PostgreSQL
-- **redis**: Cache e filas
-- **kestra**: Orquestrador de workflows
-- **kestra-agent**: Agente Python com scripts SDR
-- **webhook-service**: Serviço de webhook WhatsApp
-- **api-principal**: API principal
-
-### 🔗 MCP Servers (Serena SDR):
-- **supabase-mcp-server**: Servidor MCP para Supabase (porta 3000)
-- **serena-mcp-server**: Servidor MCP para API Serena (porta 3002)
-- **whatsapp-mcp-server**: Servidor MCP para WhatsApp (porta 3003)
-
-### 🌐 Rede e Dependências:
-- Todos os serviços usam a rede `coolify`
-- Healthchecks configurados para todos os MCPs
-- Dependências configuradas com `depends_on` e `service_healthy`
-
-### 📁 Volumes Montados:
-- `./scripts:/app/scripts` - Scripts principais
-- `./serena-sdr/scripts:/app/scripts/sdr` - Scripts SDR
-- `./config/mcp/*:/app` - Configurações MCP
-
-### 🔄 Reimplantação no Coolify:
-
-#### 📋 Passo a Passo Completo:
-
-**1. Preparação do Repositório:**
 ```bash
-# Commit das alterações
-git add .
-git commit -m "feat: Integração Serena SDR com MCP servers"
-git push origin main
+# Teste completo do fluxo WhatsApp
+python -m pytest tests/e2e/test_whatsapp_flow.py
+
+# Simulação Kestra
+kestra test workflows/2_sdr_conversation_flow.yml
 ```
 
-**2. Atualização no Dashboard Coolify:**
-- Acessar o projeto no dashboard do Coolify
-- Verificar se o branch `main` foi atualizado automaticamente
-- Aguardar o build automático ou forçar rebuild
+### Teste dos MCP Servers
 
-**3. Configuração de Variáveis de Ambiente:**
-No painel do Coolify, verificar se todas as variáveis estão configuradas:
 ```bash
-# APIs Principais
-OPENAI_API_KEY=sk-proj-...
-SERENA_API_TOKEN=eyJhbGciOiJIUzI1NiIsInR5...
-SERENA_API_BASE_URL=https://api.serena.com.br
-WHATSAPP_API_TOKEN=RUFBUFIwRkc1c3E4Qk85...
-WHATSAPP_PHONE_NUMBER_ID=123456789
+# Testar WhatsApp MCP Server
+curl -X POST http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'
 
-# Supabase
-SECRET_SUPABASE_URL=https://xxx.supabase.co
-SECRET_SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5...
+# Testar Supabase MCP Server
+curl -X POST http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'
 
-# Outras configurações
-WHATSAPP_VERIFY_TOKEN=serena_verify_token
-WHATSAPP_BUSINESS_ACCOUNT_ID=123456789
+# Testar Serena MCP Server
+curl -X POST http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'
+
+# Testar validação de qualificação
+curl -X POST http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "validar_qualificacao_lead",
+      "arguments": {
+        "cidade": "Recife",
+        "estado": "PE",
+        "tipo_pessoa": "natural",
+        "valor_conta": 800.00
+      }
+    }
+  }'
+
+# Testar envio de mensagem WhatsApp
+curl -X POST http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "sendTextMessage",
+      "arguments": {
+        "to": "5511999999999",
+        "message": "Teste do MCP Server"
+      }
+    }
+  }'
+
+# Testar consulta SQL no Supabase
+curl -X POST http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "execute_sql",
+      "arguments": {
+        "query": "SELECT COUNT(*) FROM leads"
+      }
+    }
+  }'
 ```
 
-**4. Rebuild & Redeploy:**
-- Clicar em "Rebuild & Redeploy" no Coolify
-- Aguardar a conclusão do build (pode demorar 5-10 minutos)
-- Verificar se todos os serviços iniciaram corretamente
+### Estrutura de Testes
 
-**5. Validação Pós-Deploy:**
-```bash
-# Verificar status dos serviços
-docker-compose ps
-
-# Verificar logs dos MCPs
-docker-compose logs supabase-mcp-server
-docker-compose logs serena-mcp-server
-docker-compose logs whatsapp-mcp-server
-
-# Executar script de verificação
-python scripts/verify_mcp_servers.py
-
-# Testar workflows no Kestra UI
-# Acessar: https://kestra.darwinai.com.br
-# Verificar se o workflow "2_sdr_conversation_flow" está ativo
+```
+tests/
+├── unit/
+│   ├── test_ai_sdr_agent.py
+│   ├── test_follow_up_agent.py
+│   ├── test_classify_media.py
+│   ├── test_supabase_tools.py
+│   └── test_serena_tools.py
+├── integration/
+│   ├── test_mcp_integration.py
+│   └── test_workflow_steps.py
+└── e2e/
+    ├── test_whatsapp_flow.py
+    └── test_lead_qualification.py
 ```
 
-### 🔍 Verificação de Healthchecks dos MCPs:
+## 📈 Deploy
+
+### Produção (Coolify)
+
+1. Configure o repositório no Coolify
+2. Configure as variáveis de ambiente
+3. Deploy automático via Git
+4. Ative o trigger webhook no Kestra
+
+### Desenvolvimento
+
 ```bash
-# Verificar status dos MCPs
-docker-compose ps
+# Build da imagem
+docker build -f Dockerfile.agent -t serena-sdr-agent .
 
-# Verificar logs dos MCPs
-docker-compose logs supabase-mcp-server
-docker-compose logs serena-mcp-server
-docker-compose logs whatsapp-mcp-server
-
-# Testar healthchecks diretamente
-curl http://localhost:3000/health  # Supabase MCP
-curl http://localhost:3002/health  # Serena MCP
-curl http://localhost:3003/health  # WhatsApp MCP
-
-# Verificar conectividade entre serviços
-docker-compose exec kestra-agent curl http://supabase-mcp-server:3000/health
-docker-compose exec kestra-agent curl http://serena-mcp-server:3002/health
-docker-compose exec kestra-agent curl http://whatsapp-mcp-server:3003/health
+# Executar localmente
+docker run -d --name serena-sdr-agent \
+  --env-file .env \
+  --network serena-sdr-network \
+  serena-sdr-agent
 ```
 
-## 🔧 Tecnologias
+## 🔍 Troubleshooting
 
-- **Python 3.11+** - Backend principal
-- **LangChain 0.2.17** - Framework IA com RAG
-- **OpenAI GPT-4o-mini** - Modelo conversacional + embeddings
-- **FAISS 1.8.0** - Vector database para busca semântica
-- **FastAPI** - APIs REST
-- **Supabase** - Database PostgreSQL
-- **Docker** - Containerização
-- **Kestra** - Orquestração workflows
-- **Node.js 18** - MCP Servers
+### Problemas Comuns
+
+1. **MCP Server não responde**
+   - Verificar se os servidores MCP estão online:
+     - WhatsApp: `curl http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/health`
+     - Supabase: `curl http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/health`
+     - Serena: `curl http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/`
+   - Verificar URLs corretas nas variáveis de ambiente
+   - Verificar logs dos servidores MCP
+
+2. **Erro de autenticação OpenAI**
+   - Verificar `OPENAI_API_KEY` no `.env`
+   - Verificar limites de uso da API
+
+3. **WhatsApp não envia mensagens**
+   - Verificar `WHATSAPP_API_TOKEN`
+   - Verificar `WHATSAPP_PHONE_NUMBER_ID`
+   - Testar endpoint: `curl -X POST http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/mcp -H "Content-Type: application/json" -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'`
+
+4. **Workflow Kestra falha**
+   - Verificar logs no Kestra UI
+   - Verificar variáveis de ambiente
+   - Verificar conectividade com MCP servers
+
+5. **Flag initial_template_sent não atualiza**
+   - Verificar conexão com Supabase
+   - Verificar permissões da tabela leads
+   - Verificar se `send-whatsapp-template` foi executado com sucesso
+
+6. **Erro de qualificação de lead**
+   - Verificar se conta de energia ≥ R$ 200
+   - Verificar se região está coberta pela GD
+   - Testar validação: `curl -X POST http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/mcp -H "Content-Type: application/json" -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "validar_qualificacao_lead", "arguments": {"cidade": "Recife", "estado": "PE", "tipo_pessoa": "natural", "valor_conta": 800.00}}}'`
+
+7. **Erro de duplicidade no cadastro**
+   - Verificar se email/telefone já existe na base
+   - Usar dados únicos para testes
+   - Verificar logs de erro da API Serena
+
+### Logs
+
+```bash
+# Logs do agente
+docker-compose logs -f kestra-agent
+
+# Logs do Kestra
+docker-compose logs -f kestra
+
+# Logs de todos os serviços
+docker-compose logs -f
+```
+
+## 📚 Documentação Adicional
+
+- [Kestra Documentation](https://kestra.io/docs)
+- [OpenAI Function Calling](https://platform.openai.com/docs/guides/function-calling)
+- [WhatsApp Business API](https://developers.facebook.com/docs/whatsapp/cloud-api)
+- [Supabase Documentation](https://supabase.com/docs)
+
+### 📖 Documentação dos MCP Servers
+
+- **[WhatsApp MCP Server](README-whatsapp-mcp-server.md)** - Servidor para envio de mensagens WhatsApp
+- **[Supabase MCP Server](README-supabase-mcp-server.md)** - Servidor para acesso ao banco de dados
+- **[Serena MCP Server](README-serena-mcp-server.md)** - Servidor para integração com API de Parcerias Serena
+
+### 🔗 URLs dos Servidores MCP
+
+| Servidor | URL | Status | Health Check |
+|----------|-----|--------|--------------|
+| **WhatsApp MCP** | `http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io/` | ✅ Operacional | `GET /health` |
+| **Supabase MCP** | `http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io/` | ✅ Operacional | `GET /health` |
+| **Serena MCP** | `http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/` | ✅ Operacional | `GET /health` |
+
+### **Endpoints MCP por Servidor:**
+
+- **WhatsApp MCP**: `POST /mcp` (JSON-RPC 2.0)
+- **Supabase MCP**: `POST /mcp` (JSON-RPC 2.0)  
+- **Serena MCP**: `GET /tools` (REST API) + `POST /tools/{tool_name}`
+
+### **Ferramentas Disponíveis:**
+
+**WhatsApp MCP (4 tools):**
+- `sendTextMessage` - Envio de mensagens de texto
+- `sendTemplateMessage` - Envio de templates aprovados
+- `sendImageMessage` - Envio de imagens com legenda
+- `markMessageAsRead` - Marcar mensagem como lida
+
+**Supabase MCP (16 tools):**
+- `list_tables`, `execute_sql`, `apply_migration`
+- `get_logs`, `get_advisors`, `search_docs`
+- `list_edge_functions`, `deploy_edge_function`
+- `list_storage_buckets` e mais...
+
+**Serena MCP (9 tools):**
+- `consultar_areas_operacao_gd` - Consultar áreas de operação
+- `obter_planos_gd` - Obter planos de GD
+- `cadastrar_lead`, `buscar_leads`, `validar_qualificacao_lead`
+- `buscar_lead_por_id`, `atualizar_lead`
+- `atualizar_credenciais_distribuidora`, `criar_contrato`
+
+## 🤝 Contribuição
+
+1. Fork o projeto
+2. Crie uma branch para sua feature
+3. Commit suas mudanças
+4. Push para a branch
+5. Abra um Pull Request
+
+## 📄 Licença
+
+Este projeto é proprietário da Serena Energia.
+
+---
+
+**Desenvolvido com ❤️ pela equipe Serena SDR** 

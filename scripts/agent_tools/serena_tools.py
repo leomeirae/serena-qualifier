@@ -499,4 +499,157 @@ class SerenaTools:
                 "success": False,
                 "error": str(e),
                 "planos": []
-            } 
+            }
+    
+    def buscar_planos_de_energia_por_localizacao(self, cidade: str, estado: str) -> Dict[str, Any]:
+        """
+        Busca planos de energia disponíveis para uma localização específica.
+        
+        Args:
+            cidade: Nome da cidade
+            estado: Sigla do estado
+            
+        Returns:
+            Dict: Lista de planos disponíveis para a localização
+        """
+        try:
+            # Primeiro verificar se a área tem cobertura
+            areas_result = self.consultar_areas_operacao_gd(cidade=cidade, estado=estado)
+            
+            if not areas_result["success"] or areas_result["count"] == 0:
+                return {
+                    "success": False,
+                    "error": "Área não possui cobertura para Geração Distribuída",
+                    "planos": [],
+                    "cidade": cidade,
+                    "estado": estado
+                }
+            
+            # Obter planos disponíveis
+            planos_result = self.obter_planos_gd(cidade=cidade, estado=estado)
+            
+            return {
+                "success": True,
+                "areas_cobertura": areas_result["areas"],
+                "planos": planos_result["planos"],
+                "cidade": cidade,
+                "estado": estado,
+                "total_planos": planos_result["count"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar planos por localização: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "planos": [],
+                "cidade": cidade,
+                "estado": estado
+            }
+    
+    def analisar_conta_de_energia_de_imagem(self, image_url: str) -> Dict[str, Any]:
+        """
+        Analisa uma imagem de conta de energia para extrair informações relevantes.
+        
+        Args:
+            image_url: URL da imagem da conta de energia
+            
+        Returns:
+            Dict: Dados extraídos da conta de energia
+        """
+        try:
+            # Usar o método existente processar_fatura_energia
+            result = self.processar_fatura_energia(image_url)
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "valor_conta": result["valor_conta"],
+                    "data_vencimento": result["data_vencimento"],
+                    "consumo_kwh": result["consumo_kwh"],
+                    "dados_extraidos": result["dados_extraidos"],
+                    "message": "Conta de energia analisada com sucesso"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": result["error"],
+                    "valor_conta": 0,
+                    "data_vencimento": None,
+                    "consumo_kwh": 0,
+                    "dados_extraidos": {}
+                }
+                
+        except Exception as e:
+            logger.error(f"Erro ao analisar conta de energia: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "valor_conta": 0,
+                "data_vencimento": None,
+                "consumo_kwh": 0,
+                "dados_extraidos": {}
+            }
+
+
+# =============================================================================
+# FUNÇÕES WRAPPER PARA COMPATIBILIDADE COM AGENT_ORCHESTRATOR
+# =============================================================================
+
+# Instância global da classe SerenaTools
+_serena_tools_instance = None
+
+def _get_serena_tools_instance():
+    """Retorna uma instância da classe SerenaTools."""
+    global _serena_tools_instance
+    if _serena_tools_instance is None:
+        _serena_tools_instance = SerenaTools()
+    return _serena_tools_instance
+
+def buscar_planos_de_energia_por_localizacao(cidade: str, estado: str) -> Dict[str, Any]:
+    """
+    Função wrapper para buscar planos de energia por localização.
+    
+    Args:
+        cidade: Nome da cidade
+        estado: Sigla do estado
+        
+    Returns:
+        Dict: Lista de planos disponíveis para a localização
+    """
+    try:
+        serena_tools = _get_serena_tools_instance()
+        return serena_tools.buscar_planos_de_energia_por_localizacao(cidade, estado)
+    except Exception as e:
+        logger.error(f"Erro na função wrapper buscar_planos_de_energia_por_localizacao: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "planos": [],
+            "cidade": cidade,
+            "estado": estado
+        }
+
+def analisar_conta_de_energia_de_imagem(image_url: str) -> Dict[str, Any]:
+    """
+    Função wrapper para analisar conta de energia de imagem.
+    
+    Args:
+        image_url: URL da imagem da conta de energia
+        
+    Returns:
+        Dict: Dados extraídos da conta de energia
+    """
+    try:
+        serena_tools = _get_serena_tools_instance()
+        return serena_tools.analisar_conta_de_energia_de_imagem(image_url)
+    except Exception as e:
+        logger.error(f"Erro na função wrapper analisar_conta_de_energia_de_imagem: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "valor_conta": 0,
+            "data_vencimento": None,
+            "consumo_kwh": 0,
+            "dados_extraidos": {}
+        }

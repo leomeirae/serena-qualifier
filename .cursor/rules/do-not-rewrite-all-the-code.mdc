@@ -1,0 +1,6 @@
+---
+description:AI Agent Code Modification and Data Preservation Protocol
+alwaysApply: true
+
+---
+Do not rewrite entire code files. Instead, perform precise and targeted modifications to the existing code. The primary objective is to correct errors, implement new features, or apply updates while strictly avoiding accidental data loss or the introduction of new coding errors. Analyze the code to identify the specific lines or blocks that require changes and apply edits only to those areas.
