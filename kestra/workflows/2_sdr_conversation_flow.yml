@@ -32,86 +32,156 @@ tasks:
     message: |
       [SDR TRIGGER] Webhook recebido
       ================================================
-      Phone: {{ trigger.body.phone ?? 'N/A' }}
-      Lead ID: {{ trigger.body.lead_id ?? 'N/A' }}
-      Message: {{ trigger.body.message ?? 'N/A' }}
-      Message Type: {{ trigger.body.type ?? 'text' }}
       Timestamp: {{ now() }}
       
       [DEBUG] Workflow iniciado com sucesso!
 
-  # FASE 2: EXTRAÇÃO DE MEDIA_ID
-  - id: extract_media_id
+  # FASE 2: EXTRAÇÃO DE DADOS DO WEBHOOK WHATSAPP
+  - id: extract_whatsapp_data
     type: io.kestra.plugin.scripts.python.Script
-    description: "Extrai o media_id do payload WhatsApp para processamento de imagens"
+    description: "Extrai dados do webhook WhatsApp e busca lead no Supabase"
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       image: python:3.11-slim
       networkMode: coolify
     env:
-      PHONE_NUMBER: "{{ trigger.body.phone ?? 'N/A' }}"
-      LEAD_ID: "{{ trigger.body.lead_id ?? 'N/A' }}"
-      MESSAGE_TYPE: "{{ trigger.body.type ?? 'text' }}"
-      MESSAGE_TEXT: "{{ trigger.body.message ?? '' }}"
+      TRIGGER_BODY: "{{ trigger.body | toJson }}"
+      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
     script: |
       import json
       import os
-      import sys
+      import psycopg2
       from kestra import Kestra
       
-      # Configurar logging
-      print("[DEBUG] Iniciando extração de media_id...")
+      print("[DEBUG] Iniciando extração de dados do webhook WhatsApp...")
       
       try:
-          # Obter dados do trigger de forma segura
-          phone = os.environ.get('PHONE_NUMBER', '')
-          lead_id = os.environ.get('LEAD_ID', '')
-          message_type = os.environ.get('MESSAGE_TYPE', 'text')
-          message_text = os.environ.get('MESSAGE_TEXT', '')
+          # Obter dados do trigger
+          trigger_body = json.loads(os.environ.get('TRIGGER_BODY', '{}'))
+          print(f"[DEBUG] Trigger body: {json.dumps(trigger_body, indent=2)}")
           
-          print(f"[DEBUG] Phone: {phone}")
-          print(f"[DEBUG] Lead ID: {lead_id}")
-          print(f"[DEBUG] Message Type: {message_type}")
-          print(f"[DEBUG] Message Text: {message_text}")
-          
-          # Para este teste, vamos usar um media_id vazio
+          # Extrair dados do webhook WhatsApp
+          phone_number = None
+          message_text = None
+          message_type = "text"
           media_id = ""
-          print(f"[DEBUG] Media ID final extraído: '{media_id}'")
+          
+          # Tentar extrair do formato padrão primeiro
+          if 'phone' in trigger_body:
+              phone_number = trigger_body['phone']
+              message_text = trigger_body.get('message', '')
+              message_type = trigger_body.get('type', 'text')
+          # Se não, tentar extrair do formato WhatsApp webhook
+          elif 'entry' in trigger_body and len(trigger_body['entry']) > 0:
+              entry = trigger_body['entry'][0]
+              if 'changes' in entry and len(entry['changes']) > 0:
+                  change = entry['changes'][0]
+                  if 'value' in change:
+                      value = change['value']
+                      
+                      # Extrair telefone
+                      if 'contacts' in value and len(value['contacts']) > 0:
+                          phone_number = value['contacts'][0].get('wa_id', '')
+                          if phone_number and not phone_number.startswith('+'):
+                              phone_number = '+' + phone_number
+                      
+                      # Extrair mensagem
+                      if 'messages' in value and len(value['messages']) > 0:
+                          message = value['messages'][0]
+                          message_type = message.get('type', 'text')
+                          
+                          if message_type == 'text':
+                              message_text = message.get('text', {}).get('body', '')
+                          elif message_type == 'image':
+                              message_text = message.get('image', {}).get('caption', '')
+                              media_id = message.get('image', {}).get('id', '')
+                          elif message_type == 'document':
+                              message_text = message.get('document', {}).get('caption', '')
+                              media_id = message.get('document', {}).get('id', '')
+          
+          print(f"[DEBUG] Phone: {phone_number}")
+          print(f"[DEBUG] Message: {message_text}")
+          print(f"[DEBUG] Type: {message_type}")
+          print(f"[DEBUG] Media ID: {media_id}")
           
           # Validar dados obrigatórios
-          if not phone or phone == 'N/A':
-              raise ValueError("Phone number is required")
+          if not phone_number:
+              raise ValueError("Phone number not found in webhook")
           
-          if not lead_id or lead_id == 'N/A':
-              raise ValueError("Lead ID is required")
+          if not message_text:
+              raise ValueError("Message text not found in webhook")
           
-          print("[DEBUG] Dados validados com sucesso")
+          # Buscar lead no Supabase
+          db_connection_string = os.getenv('DB_CONNECTION_STRING')
+          if not db_connection_string:
+              raise ValueError("DB_CONNECTION_STRING not found")
+          
+          conn = psycopg2.connect(db_connection_string)
+          cur = conn.cursor()
+          
+          # Buscar lead pelo número de telefone
+          cur.execute("""
+              SELECT id, name, phone_number, city, state, invoice_amount, client_type
+              FROM leads 
+              WHERE phone_number = %s
+              ORDER BY created_at DESC
+              LIMIT 1
+          """, (phone_number,))
+          
+          result = cur.fetchone()
+          cur.close()
+          conn.close()
+          
+          if result:
+              lead_id, lead_name, lead_phone, lead_city, lead_state, lead_invoice, lead_type = result
+              print(f"[DEBUG] Lead encontrado: ID={lead_id}, Name={lead_name}")
+          else:
+              # Se não encontrar, criar um lead temporário
+              lead_id = f"temp_{phone_number.replace('+', '').replace('-', '')}"
+              lead_name = "Lead WhatsApp"
+              lead_city = "N/A"
+              lead_state = "N/A"
+              lead_invoice = 0
+              lead_type = "casa"
+              print(f"[DEBUG] Lead não encontrado, usando ID temporário: {lead_id}")
+          
+          print("[DEBUG] Dados extraídos com sucesso")
           
           Kestra.outputs({
-              'media_id': media_id,
-              'phone': phone,
-              'lead_id': lead_id,
+              'phone': phone_number,
+              'lead_id': str(lead_id),
+              'lead_name': lead_name,
+              'lead_city': lead_city,
+              'lead_state': lead_state,
+              'lead_invoice': float(lead_invoice) if lead_invoice else 0,
+              'lead_type': lead_type,
+              'message_text': message_text,
               'message_type': message_type,
-              'message_text': message_text
+              'media_id': media_id,
+              'extraction_success': True
           })
           
-          print("[DEBUG] Outputs definidos com sucesso")
-          
       except Exception as e:
-          print(f"[ERROR] Erro ao extrair media_id: {str(e)}")
+          print(f"[ERROR] Erro ao extrair dados: {str(e)}")
           import traceback
           print(f"[ERROR] Traceback: {traceback.format_exc()}")
           
           # Fallback com dados mínimos
           Kestra.outputs({
-              'media_id': '',
-              'phone': os.environ.get('PHONE_NUMBER', ''),
-              'lead_id': os.environ.get('LEAD_ID', ''),
+              'phone': '+5581997498268',  # Fallback para seu número
+              'lead_id': 'ERROR',
+              'lead_name': 'Erro',
+              'lead_city': 'N/A',
+              'lead_state': 'N/A',
+              'lead_invoice': 0,
+              'lead_type': 'casa',
+              'message_text': 'Erro na extração',
               'message_type': 'text',
-              'message_text': os.environ.get('MESSAGE_TEXT', '')
+              'media_id': '',
+              'extraction_success': False
           })
 
-  # FASE 3: CLASSIFICAÇÃO DE MÍDIA (NOVO)
+  # FASE 3: CLASSIFICAÇÃO DE MÍDIA
   - id: classify_media
     type: io.kestra.plugin.scripts.python.Script
     description: "Classifica se a mensagem é imagem ou texto"
@@ -120,9 +190,9 @@ tasks:
       image: python:3.11-slim
       networkMode: coolify
     env:
-      MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id }}"
-      MESSAGE_TYPE: "{{ outputs.extract_media_id.vars.message_type }}"
-      MESSAGE_TEXT: "{{ outputs.extract_media_id.vars.message_text }}"
+      MEDIA_ID: "{{ outputs.extract_whatsapp_data.vars.media_id }}"
+      MESSAGE_TYPE: "{{ outputs.extract_whatsapp_data.vars.message_type }}"
+      MESSAGE_TEXT: "{{ outputs.extract_whatsapp_data.vars.message_text }}"
     script: |
       import os
       import json
@@ -175,29 +245,7 @@ tasks:
               'message_type': message_type
           })
 
-  # FASE 4: BUSCAR DADOS DO LEAD NO SUPABASE
-  - id: get_lead_data
-    type: io.kestra.plugin.core.http.Request
-    description: "Busca dados do lead no Supabase via MCP (JSON-RPC)"
-    uri: "{{ vars.supabase_mcp_url }}/mcp"
-    method: POST
-    headers:
-      Content-Type: "application/json"
-    body: |
-      {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-          "name": "execute_sql",
-          "arguments": {
-            "query": "SELECT * FROM leads WHERE phone_number = '{{ outputs.extract_media_id.vars.phone }}'"
-          }
-        }
-      }
-    allowFailure: true
-
-  # FASE 5: PROCESSAMENTO DO AGENTE IA
+  # FASE 4: PROCESSAMENTO DO AGENTE IA
   - id: run_agent
     type: io.kestra.plugin.scripts.python.Script
     description: "Executa o agente conversacional com OpenAI Function Calling"
@@ -212,16 +260,17 @@ tasks:
       WHATSAPP_API_TOKEN: "{{ secret('WHATSAPP_API_TOKEN') }}"
 
       # 🧠 Configuração da Mensagem
-      USER_MESSAGE: "{{ outputs.extract_media_id.vars.message_text }}"
-      PHONE_NUMBER: "{{ outputs.extract_media_id.vars.phone }}"
-      MESSAGE_TYPE: "{{ outputs.extract_media_id.vars.message_type }}"
-      MEDIA_ID: "{{ outputs.extract_media_id.vars.media_id | default('') }}"
-      LEAD_ID: "{{ outputs.extract_media_id.vars.lead_id }}"
+      USER_MESSAGE: "{{ outputs.extract_whatsapp_data.vars.message_text }}"
+      PHONE_NUMBER: "{{ outputs.extract_whatsapp_data.vars.phone }}"
+      MESSAGE_TYPE: "{{ outputs.extract_whatsapp_data.vars.message_type }}"
+      MEDIA_ID: "{{ outputs.extract_whatsapp_data.vars.media_id | default('') }}"
+      LEAD_ID: "{{ outputs.extract_whatsapp_data.vars.lead_id }}"
+      LEAD_NAME: "{{ outputs.extract_whatsapp_data.vars.lead_name }}"
+      LEAD_CITY: "{{ outputs.extract_whatsapp_data.vars.lead_city }}"
+      LEAD_STATE: "{{ outputs.extract_whatsapp_data.vars.lead_state }}"
+      LEAD_INVOICE: "{{ outputs.extract_whatsapp_data.vars.lead_invoice }}"
       IS_IMAGE: "{{ outputs.classify_media.vars.is_image | default(false) }}"
       EXTRACTED_TEXT: "{{ outputs.classify_media.vars.extracted_text | default('') }}"
-
-      # 🔗 Dados do Lead (do Supabase)
-      LEAD_DATA: "{{ outputs.get_lead_data.body | default('{}') }}"
 
       # 🌐 Serviços MCP
       SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
@@ -245,27 +294,33 @@ tasks:
           message_type = os.environ.get('MESSAGE_TYPE', 'text')
           media_id = os.environ.get('MEDIA_ID', '')
           lead_id = os.environ.get('LEAD_ID')
+          lead_name = os.environ.get('LEAD_NAME', 'Cliente')
+          lead_city = os.environ.get('LEAD_CITY', 'N/A')
+          lead_state = os.environ.get('LEAD_STATE', 'N/A')
+          lead_invoice = float(os.environ.get('LEAD_INVOICE', '0'))
           is_image = os.environ.get('IS_IMAGE', 'false').lower() == 'true'
           extracted_text = os.environ.get('EXTRACTED_TEXT', '')
-          lead_data = json.loads(os.environ.get('LEAD_DATA', '{}'))
           
           print(f"[DEBUG] PHONE_NUMBER: '{phone_number}'")
+          print(f"[DEBUG] LEAD_NAME: '{lead_name}'")
+          print(f"[DEBUG] LEAD_CITY: '{lead_city}'")
+          print(f"[DEBUG] USER_MESSAGE: '{user_message}'")
           print(f"[DEBUG] MESSAGE_TYPE: '{message_type}'")
-          print(f"[DEBUG] MEDIA_ID: '{media_id}'")
           print(f"[DEBUG] IS_IMAGE: '{is_image}'")
-          print(f"[DEBUG] EXTRACTED_TEXT: '{extracted_text}'")
-          print(f"[DEBUG] LEAD_ID: '{lead_id}'")
-          print(f"[DEBUG] LEAD_DATA: {json.dumps(lead_data, indent=2)}")
           
-          # Simular resposta do agente IA
-          if "olá" in user_message.lower() or "oi" in user_message.lower():
-              response = "Olá! Sou a Sílvia da Serena Energia! 😊 Como posso ajudá-lo hoje? Estou aqui para esclarecer suas dúvidas sobre energia solar e ajudar você a economizar na sua conta de luz!"
+          # Simular resposta do agente IA baseada no contexto
+          if "sim" in user_message.lower() and "confirmar" in user_message.lower():
+              response = f"Perfeito, {lead_name}! 😊 Confirmei que você está em {lead_city}. Agora vou te ajudar a economizar na sua conta de luz com energia solar! Qual é o valor médio da sua conta de energia?"
+          elif "não" in user_message.lower() or "outra" in user_message.lower():
+              response = f"Sem problemas, {lead_name}! 😊 Em qual cidade você está localizado? Assim posso verificar se temos cobertura de energia solar na sua região."
           elif "energia solar" in user_message.lower() or "solar" in user_message.lower():
               response = "Ótima pergunta! A energia solar é uma excelente opção para economizar na sua conta de luz. Com nossos painéis solares, você pode reduzir sua conta em até 95%! Gostaria de saber mais sobre como funciona?"
           elif "preço" in user_message.lower() or "valor" in user_message.lower() or "custo" in user_message.lower():
               response = "O investimento em energia solar varia conforme o seu consumo. Posso fazer uma análise personalizada para você! Qual é o valor médio da sua conta de luz?"
+          elif "olá" in user_message.lower() or "oi" in user_message.lower():
+              response = f"Olá, {lead_name}! Sou a Sílvia da Serena Energia! 😊 Como posso ajudá-lo hoje? Estou aqui para esclarecer suas dúvidas sobre energia solar e ajudar você a economizar na sua conta de luz!"
           else:
-              response = "Obrigada pelo contato! Sou a Sílvia da Serena Energia e estou aqui para ajudá-lo com tudo sobre energia solar. Como posso ser útil hoje?"
+              response = f"Obrigada pelo contato, {lead_name}! Sou a Sílvia da Serena Energia e estou aqui para ajudá-lo com tudo sobre energia solar. Como posso ser útil hoje?"
           
           print(f"[AI] Resposta gerada: {len(response)} chars")
           
@@ -273,7 +328,8 @@ tasks:
               'response': response,
               'success': True,
               'lead_id': lead_id,
-              'phone_number': phone_number
+              'phone_number': phone_number,
+              'lead_name': lead_name
           })
           
       except Exception as e:
@@ -290,7 +346,7 @@ tasks:
               'phone_number': phone_number
           })
 
-  # FASE 6: ENVIO DA RESPOSTA VIA WHATSAPP
+  # FASE 5: ENVIO DA RESPOSTA VIA WHATSAPP
   - id: send_whatsapp_message
     type: io.kestra.plugin.core.http.Request
     description: "Envia resposta do agente via WhatsApp MCP (JSON-RPC)"
@@ -306,14 +362,14 @@ tasks:
         "params": {
           "name": "sendTextMessage",
           "arguments": {
-            "to": "{{ outputs.extract_media_id.vars.phone }}",
+            "to": "{{ outputs.extract_whatsapp_data.vars.phone }}",
             "message": "{{ outputs.run_agent.vars.response }}"
           }
         }
       }
     allowFailure: true
 
-  # FASE 7: LOG DE SUCESSO
+  # FASE 6: LOG DE SUCESSO
   - id: log_success
     type: io.kestra.plugin.core.log.Log
     description: "Registra sucesso do processamento"
@@ -321,104 +377,27 @@ tasks:
     message: |
       ✅ SDR PROCESSAMENTO CONCLUÍDO COM SUCESSO
       ================================================
-      Lead ID: {{ outputs.extract_media_id.vars.lead_id }}
-      Phone: {{ outputs.extract_media_id.vars.phone }}
-      Message: {{ outputs.extract_media_id.vars.message_text[:100] }}...
+      Lead ID: {{ outputs.extract_whatsapp_data.vars.lead_id }}
+      Lead Name: {{ outputs.extract_whatsapp_data.vars.lead_name }}
+      Phone: {{ outputs.extract_whatsapp_data.vars.phone }}
+      Message: {{ outputs.extract_whatsapp_data.vars.message_text[:100] }}...
       Is Image: {{ outputs.classify_media.vars.is_image }}
       Response Length: {{ outputs.run_agent.vars.response | length }} chars
       WhatsApp Status: {{ outputs.send_whatsapp_message.vars.statusCode | default('PENDING') }}
       Timestamp: {{ now() }}
 
-  # FASE 8: WAIT 2 HORAS PARA FOLLOW-UP
-  - id: wait_2h
-    type: io.kestra.plugin.scripts.python.Script
-    description: "Aguarda 2 horas antes de verificar resposta"
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: python:3.11-slim
-      networkMode: coolify
-    runIf: "{{ outputs.run_agent.vars.success == true }}"
-    script: |
-      import time
-      import logging
-      from kestra import Kestra
-      
-      logging.basicConfig(level=logging.INFO)
-      logger = logging.getLogger(__name__)
-      
-      logger.info("Iniciando aguardo de 2 horas para follow-up...")
-      
-      # Aguarda 2 horas (7200 segundos)
-      time.sleep(7200)
-      
-      logger.info("Aguardo concluído. Prosseguindo para follow-up...")
-      
-      Kestra.outputs({
-          'wait_completed': True,
-          'wait_duration': 'PT2H'
-      })
-
-  # FASE 9: FOLLOW-UP APÓS 2 HORAS
-  - id: follow_up_if_needed
-    type: io.kestra.plugin.scripts.python.Script
-    description: "Envia follow-up após 2 horas sem resposta"
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-      image: python:3.11-slim
-      networkMode: coolify
-    runIf: "{{ outputs.run_agent.vars.success == true }}"
-    env:
-      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
-      PHONE_NUMBER: "{{ outputs.extract_media_id.vars.phone }}"
-      LEAD_ID: "{{ outputs.extract_media_id.vars.lead_id }}"
-      LEAD_DATA: "{{ outputs.get_lead_data.body | default('{}') }}"
-      SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
-      SERENA_MCP_URL: "{{ vars.serena_mcp_url }}"
-      WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
-    script: |
-      import os
-      import json
-      from kestra import Kestra
-      
-      try:
-          phone_number = os.environ.get('PHONE_NUMBER')
-          lead_id = os.environ.get('LEAD_ID')
-          lead_data = json.loads(os.environ.get('LEAD_DATA', '{}'))
-          
-          print(f"[FOLLOW-UP] Gerando lembrete para {phone_number}")
-          
-          # Simular mensagem de follow-up
-          follow_up_message = "Olá! Passou por aqui para ver se você tem alguma dúvida sobre energia solar. Estou à disposição para ajudá-lo! 😊"
-          
-          print(f"[FOLLOW-UP] Mensagem gerada: {follow_up_message}")
-          
-          Kestra.outputs({
-              'follow_up_sent': True,
-              'follow_up_message': follow_up_message,
-              'phone_number': phone_number
-          })
-          
-      except Exception as e:
-          print(f"[ERROR] Erro no follow-up: {str(e)}")
-          import traceback
-          print(f"[ERROR] Traceback: {traceback.format_exc()}")
-          Kestra.outputs({
-              'follow_up_sent': False,
-              'error': str(e)
-          })
-
-  # FASE 10: LOG FINAL
+  # FASE 7: LOG FINAL
   - id: log_final
     type: io.kestra.plugin.core.log.Log
     description: "Log final do workflow"
     message: |
       [SDR WORKFLOW FINALIZADO]
       ================================================
-      Lead ID: {{ outputs.extract_media_id.vars.lead_id }}
-      Phone: {{ outputs.extract_media_id.vars.phone }}
+      Lead ID: {{ outputs.extract_whatsapp_data.vars.lead_id }}
+      Lead Name: {{ outputs.extract_whatsapp_data.vars.lead_name }}
+      Phone: {{ outputs.extract_whatsapp_data.vars.phone }}
       Agent Success: {{ outputs.run_agent.vars.success | default('N/A') }}
       WhatsApp Sent: {{ outputs.send_whatsapp_message.vars.statusCode | default('N/A') }}
-      Follow-up Sent: {{ outputs.follow_up_if_needed.vars.follow_up_sent | default('N/A') }}
       Duration: {{ execution.duration }}
       Timestamp: {{ now() }}
 
@@ -431,8 +410,8 @@ errors:
     message: |
       ❌ ERRO GLOBAL NO WORKFLOW SDR
       ================================================
-      Lead ID: N/A
-      Phone: N/A
+      Lead ID: {{ outputs.extract_whatsapp_data.vars.lead_id | default('N/A') }}
+      Phone: {{ outputs.extract_whatsapp_data.vars.phone | default('N/A') }}
       Error: {{ execution.error }}
       Task: {{ execution.taskRunId }}
       Timestamp: {{ now() }}
@@ -454,7 +433,7 @@ errors:
         "params": {
           "name": "sendTextMessage",
           "arguments": {
-            "to": "+5581997498268",
+            "to": "{{ outputs.extract_whatsapp_data.vars.phone | default('+5581997498268') }}",
             "message": "Desculpe, tivemos um problema técnico. Retornarei em breve. 😊"
           }
         }
