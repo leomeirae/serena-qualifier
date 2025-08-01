@@ -12,7 +12,7 @@ Funcionalidades:
 - Logs detalhados e validação de segurança.
 
 Author: Serena-Coder AI Agent & Gemini
-Version: 1.1.0 (Definitive Fix)
+Version: 1.1.1 (Workflow URL Fix)
 Created: 2025-08-01
 """
 
@@ -51,7 +51,7 @@ if not logger.handlers:
 app = FastAPI(
     title="WhatsApp Webhook Service",
     description="Bridge between WhatsApp Business API and Kestra workflows",
-    version="1.1.0"
+    version="1.1.1"
 )
 
 # CORS middleware
@@ -150,7 +150,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "whatsapp-webhook-service",
-        "version": "1.1.0",
+        "version": "1.1.1",
         "timestamp": datetime.now().isoformat()
     }
 
@@ -176,7 +176,7 @@ async def health_check_and_verify(request: Request):
         return {
             "status": "healthy",
             "service": "whatsapp-webhook-service",
-            "version": "1.1.0",
+            "version": "1.1.1",
             "timestamp": datetime.now().isoformat(),
             "kestra_target_url": KESTRA_WEBHOOK_URL
         }
