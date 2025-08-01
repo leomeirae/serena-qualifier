@@ -607,15 +607,11 @@ def _get_serena_tools_instance():
     return _serena_tools_instance
 
 def buscar_planos_de_energia_por_localizacao(cidade: str, estado: str) -> Dict[str, Any]:
-    """
-    Função wrapper para buscar planos de energia por localização.
+    """Função wrapper para buscar planos de energia por localização.
     
     Args:
         cidade: Nome da cidade
         estado: Sigla do estado
-        
-    Returns:
-        Dict: Lista de planos disponíveis para a localização
     """
     try:
         serena_tools = _get_serena_tools_instance()
@@ -631,14 +627,10 @@ def buscar_planos_de_energia_por_localizacao(cidade: str, estado: str) -> Dict[s
         }
 
 def analisar_conta_de_energia_de_imagem(image_url: str) -> Dict[str, Any]:
-    """
-    Função wrapper para analisar conta de energia de imagem.
+    """Função wrapper para analisar conta de energia de imagem.
     
     Args:
         image_url: URL da imagem da conta de energia
-        
-    Returns:
-        Dict: Dados extraídos da conta de energia
     """
     try:
         serena_tools = _get_serena_tools_instance()
