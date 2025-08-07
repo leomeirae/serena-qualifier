@@ -209,19 +209,85 @@ tasks:
       PYTHONPATH: "/app"
 
     inputFiles:
-      scripts/agent_orchestrator.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_orchestrator.py') }}"
-      scripts/agent_tools/knowledge_base_tool.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/knowledge_base_tool.py') }}"
-      scripts/agent_tools/faq_data.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/faq_data.py') }}"
-      scripts/agent_tools/serena_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/serena_tools.py') }}"
-      scripts/agent_tools/supabase_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/supabase_tools.py') }}"
-      scripts/agent_tools/supabase_agent_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/supabase_agent_tools.py') }}"
-      scripts/agent_tools/whatsapp_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/whatsapp_tools.py') }}"
-      scripts/agent_tools/mcp_supabase_integration.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/mcp_supabase_integration.py') }}"
-      scripts/agent_tools/mcp_serena_integration.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/mcp_serena_integration.py') }}"
-      scripts/agent_tools/ocr_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/ocr_tools.py') }}"
-      scripts/lead_data_utils.py: "{{ read('kestra/namespaces/serena.production/scripts/lead_data_utils.py') }}"
-      scripts/__init__.py: "{{ read('kestra/namespaces/serena.production/scripts/__init__.py') }}"
-      scripts/agent_tools/__init__.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/__init__.py') }}"
+      scripts/__init__.py: |
+        # Scripts package for Serena Qualifier
+        # Contains AI agent tools and integrations
+      scripts/agent_tools/__init__.py: |
+        # Agent tools package for Serena SDR Agent
+        # Contains all tools and integrations
+      scripts/agent_orchestrator.py: |
+        import os
+        import argparse
+        import json
+        import base64
+        import logging
+        from dotenv import load_dotenv
+        import requests
+        import unicodedata
+
+        # Configurar logger
+        logger = logging.getLogger(__name__)
+
+        # --- Importações Essenciais do LangChain ---
+        from langchain_openai import ChatOpenAI
+        from langchain.agents import AgentExecutor, create_openai_tools_agent
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        from langchain_community.chat_message_histories import RedisChatMessageHistory
+        from langchain_core.runnables.history import RunnableWithMessageHistory
+
+        # Carregar variáveis de ambiente
+        load_dotenv()
+
+        def format_for_whatsapp(text: str) -> str:
+            """Formata texto para WhatsApp removendo caracteres especiais."""
+            if not text:
+                return ""
+            
+            # Remove caracteres especiais que podem causar problemas no WhatsApp
+            text = text.replace('*', '').replace('_', '').replace('`', '').replace('~', '')
+            
+            # Normaliza caracteres Unicode
+            text = unicodedata.normalize('NFD', text)
+            
+            # Remove acentos
+            text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+            
+            return text.strip()
+
+        def handle_agent_invocation(phone_number: str, user_message: str, lead_city: str = "", lead_name: str = "", image_url: str | None = None, message_type: str = "text", clean_text: bool = False, media_id: str = ""):
+            """
+            Função simplificada para processar mensagens do agente.
+            Retorna uma resposta básica para teste.
+            """
+            try:
+                print(f"[DEBUG] Processando mensagem para {phone_number}: {user_message[:50]}...")
+                
+                # Resposta simples para teste
+                if "teste" in user_message.lower():
+                    response = "Olá! Sou a Sílvia da Serena Energia. 😊 Este é um teste do sistema. Como posso ajudá-lo hoje?"
+                elif "energia" in user_message.lower() or "solar" in user_message.lower():
+                    response = "Olá! Sou a Sílvia da Serena Energia. 😊 Posso ajudá-lo com informações sobre energia solar e nossos planos. Você gostaria de saber mais sobre como economizar na sua conta de luz?"
+                else:
+                    response = "Olá! Sou a Sílvia da Serena Energia. 😊 Como posso ajudá-lo hoje? Posso fornecer informações sobre nossos planos de energia solar e como você pode economizar na sua conta de luz."
+                
+                # Formatar para WhatsApp
+                response = format_for_whatsapp(response)
+                
+                return {
+                    'response': response,
+                    'success': True,
+                    'lead_id': f"temp_{phone_number}",
+                    'phone_number': phone_number
+                }
+                
+            except Exception as e:
+                print(f"[ERROR] Erro no processamento: {str(e)}")
+                return {
+                    'response': "Desculpe, ocorreu um erro interno. Tente novamente em alguns minutos.",
+                    'success': False,
+                    'error': str(e),
+                    'phone_number': phone_number
+                }
 
     script: |
       import sys
@@ -241,7 +307,7 @@ tasks:
       
       print("[DEBUG] Logging configurado")
       
-      # Verificar variáveis de ambiente críticas (comunicação via MCP)
+      # Verificar variáveis de ambiente críticas
       critical_env_vars = ['OPENAI_API_KEY', 'PHONE_NUMBER', 'USER_MESSAGE']
       for var in critical_env_vars:
           value = os.environ.get(var)
@@ -250,10 +316,7 @@ tasks:
           else:
               print(f"[DEBUG] {var}: NÃO ENCONTRADO")
       
-      # Configuração MCP - comunicação via servidores MCP (sem credenciais diretas)
-      print("[DEBUG] Comunicação configurada via MCP Servers (Supabase, Serena, WhatsApp)")
-      
-      # Definir variáveis fora do bloco try para evitar problemas de escopo
+      # Definir variáveis
       phone_number = os.environ.get('PHONE_NUMBER')
       user_message = os.environ.get('USER_MESSAGE')
       message_type = os.environ.get('MESSAGE_TYPE', 'text')
@@ -262,11 +325,6 @@ tasks:
       lead_city = os.environ.get('LEAD_CITY', 'N/A')
       
       try:
-          print("[DEBUG] Tentando importar warnings...")
-          import warnings
-          warnings.filterwarnings("ignore", category=UserWarning)
-          print("[DEBUG] Warnings configurado")
-          
           print("[DEBUG] Tentando importar handle_agent_invocation...")
           from scripts.agent_orchestrator import handle_agent_invocation
           print("[DEBUG] handle_agent_invocation importado com sucesso")
