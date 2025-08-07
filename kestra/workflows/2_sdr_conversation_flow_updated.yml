@@ -20,8 +20,8 @@ variables:
   request_timeout: 30
 
   # URLs dos MCP Servers
-  supabase_mcp_url: "http://supabase-mcp-server:3000"
-  serena_mcp_url: "http://serena-mcp-server:3002"
+  supabase_mcp_url: "http://hwg4ks4ooooc04wsosookoog.157.180.32.249.sslip.io"
+  serena_mcp_url: "http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io"
   whatsapp_mcp_url: "http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io"
 
 tasks:
