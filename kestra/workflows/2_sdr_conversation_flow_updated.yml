@@ -19,10 +19,10 @@ variables:
   max_retries: 3
   request_timeout: 30
 
-  # URLs dos MCP Servers (usando DNS interno do Docker)
+  # URLs dos MCP Servers
   supabase_mcp_url: "http://supabase-mcp-server:3000"
   serena_mcp_url: "http://serena-mcp-server:3002"
-  whatsapp_mcp_url: "http://whatsapp-mcp-server:3003"
+  whatsapp_mcp_url: "http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io"
 
 tasks:
   # FASE 1: LOG INICIAL E VALIDAÇÃO
