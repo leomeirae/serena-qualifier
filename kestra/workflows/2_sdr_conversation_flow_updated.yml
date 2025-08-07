@@ -386,6 +386,7 @@ tasks:
       Content-Type: "application/json"
       Accept: "application/json"
       User-Agent: "Kestra-Workflow/1.0"
+      Authorization: "Basic {{ 'leonardo@darwinai.com.br:@Atjlc151523' | base64 }}"
     body: |
       {
         "jsonrpc": "2.0",
@@ -473,6 +474,9 @@ errors:
     method: POST
     headers:
       Content-Type: "application/json"
+      Accept: "application/json"
+      User-Agent: "Kestra-Workflow/1.0"
+      Authorization: "Basic {{ 'leonardo@darwinai.com.br:@Atjlc151523' | base64 }}"
     body: |
       {
         "jsonrpc": "2.0",
@@ -486,3 +490,7 @@ errors:
           }
         }
       }
+    timeout: 30
+    followRedirects: true
+    returnBody: true
+    allowFailure: true
