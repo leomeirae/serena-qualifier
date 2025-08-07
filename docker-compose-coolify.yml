@@ -140,7 +140,7 @@ services:
       start_period: 40s
 
   kestra:
-    image: kestra/kestra:v0.23.7
+    image: kestra/kestra:v0.24.0
     user: root
     command: ["server", "standalone"]
     volumes:
@@ -188,8 +188,7 @@ services:
       # Configuração do Redis para workflows
       REDIS_URL: "redis://redis:6379/0"
       SECRET_REDIS_URL: "redis://redis:6379/0"
-      # Configuração de Basic Auth
-      KESTRA_SERVER_BASICAUTH_ENABLED: "true"
+      # Configuração de Basic Auth (Obrigatória na v0.24.0)
       KESTRA_SERVER_BASICAUTH_USERNAME: "leonardo@darwinai.com.br"
       KESTRA_SERVER_BASICAUTH_PASSWORD: "@Atjlc151523"
     depends_on:
