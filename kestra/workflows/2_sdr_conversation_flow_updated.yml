@@ -23,7 +23,6 @@ variables:
   supabase_mcp_url: "http://supabase-mcp-server:3000"
   serena_mcp_url: "http://serena-mcp-server:3002"
   whatsapp_mcp_url: "http://bw48gc80kokwwckg0wskc40c.157.180.32.249.sslip.io"
-  kestra_base_url: "https://kestra.darwinai.com.br/api/v1"
 
 tasks:
   # FASE 1: LOG INICIAL E VALIDAÇÃO
@@ -385,9 +384,6 @@ tasks:
     method: POST
     headers:
       Content-Type: "application/json"
-      Accept: "application/json"
-      User-Agent: "Kestra-Workflow/1.0"
-      Authorization: "Basic {{ 'leonardo@darwinai.com.br:@Atjlc151523' | base64 }}"
     body: |
       {
         "jsonrpc": "2.0",
@@ -401,9 +397,6 @@ tasks:
           }
         }
       }
-    timeout: 30
-    followRedirects: true
-    returnBody: true
     allowFailure: true
 
   # FASE 5.7: DEBUG - LOG APÓS ENVIO WHATSAPP
@@ -475,9 +468,6 @@ errors:
     method: POST
     headers:
       Content-Type: "application/json"
-      Accept: "application/json"
-      User-Agent: "Kestra-Workflow/1.0"
-      Authorization: "Basic {{ 'leonardo@darwinai.com.br:@Atjlc151523' | base64 }}"
     body: |
       {
         "jsonrpc": "2.0",
@@ -491,7 +481,4 @@ errors:
           }
         }
       }
-    timeout: 30
-    followRedirects: true
-    returnBody: true
     allowFailure: true
