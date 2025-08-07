@@ -376,33 +376,33 @@ tasks:
       Response Length: {{ outputs.run_agent.vars.response | length | default(0) }} chars
       Timestamp: {{ now() }}
 
-  # FASE 5.5: ENVIO DA RESPOSTA VIA WHATSAPP
+  # FASE 5.5: ENVIO DA RESPOSTA VIA WHATSAPP (USANDO SCRIPT NO NAMESPACE)
   - id: send_whatsapp_message
-    type: io.kestra.plugin.core.http.Request
-    description: "Envia resposta do agente via WhatsApp MCP (JSON-RPC)"
-    uri: "{{ vars.whatsapp_mcp_url }}/mcp"
-    method: POST
-    headers:
-      Content-Type: "application/json"
-      Accept: "application/json"
-      User-Agent: "Kestra-Workflow/1.0"
-    body: |
-      {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-          "name": "sendTextMessage",
-          "arguments": {
-            "to": "{{ outputs.extract_whatsapp_data.vars.phone }}",
-            "message": "{{ outputs.run_agent.vars.response }}"
-          }
-        }
-      }
-    timeout: 30
-    followRedirects: true
-    returnBody: true
-    allowFailure: true
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Envia resposta do agente via WhatsApp MCP usando script do namespace"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+      networkMode: coolify
+    env:
+      PHONE_NUMBER: "{{ outputs.extract_whatsapp_data.vars.phone }}"
+      MESSAGE: "{{ outputs.run_agent.vars.response }}"
+      WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
+    inputFiles:
+      scripts/send_whatsapp_direct.py: "{{ read('scripts/send_whatsapp_direct.py') }}"
+    script: |
+      import sys
+      import os
+      from kestra import Kestra
+
+      # Adicionar diretório atual ao path
+      sys.path.insert(0, os.getcwd())
+
+      # Importar script do namespace
+      from scripts.send_whatsapp_direct import main
+
+      # Executar função principal
+      main()
 
   # FASE 5.7: DEBUG - LOG APÓS ENVIO WHATSAPP
   - id: debug_whatsapp_result
