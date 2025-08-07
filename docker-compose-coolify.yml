@@ -34,6 +34,10 @@ x-kestra-config: &kestra-config
         port: 8081
         proxy-target-header: "X-Forwarded-Proto"
         proxy-forwarded-header: "X-Forwarded-For"
+        basic-auth:
+          enabled: true
+          username: "leonardo@darwinai.com.br"
+          password: "@Atjlc151523"
         cors:
           enabled: true
           configurations:
@@ -188,9 +192,7 @@ services:
       # Configuração do Redis para workflows
       REDIS_URL: "redis://redis:6379/0"
       SECRET_REDIS_URL: "redis://redis:6379/0"
-      # Configuração de Basic Auth (Obrigatória na v0.24.0)
-      KESTRA_SERVER_BASICAUTH_USERNAME: "leonardo@darwinai.com.br"
-      KESTRA_SERVER_BASICAUTH_PASSWORD: "@Atjlc151523"
+      # Configuração de Basic Auth movida para KESTRA_CONFIGURATION
     depends_on:
       postgres:
         condition: service_started
