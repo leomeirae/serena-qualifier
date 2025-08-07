@@ -384,6 +384,8 @@ tasks:
     method: POST
     headers:
       Content-Type: "application/json"
+      Accept: "application/json"
+      User-Agent: "Kestra-Workflow/1.0"
     body: |
       {
         "jsonrpc": "2.0",
@@ -397,6 +399,9 @@ tasks:
           }
         }
       }
+    timeout: 30
+    followRedirects: true
+    returnBody: true
     allowFailure: true
 
   # FASE 5.7: DEBUG - LOG APÓS ENVIO WHATSAPP
