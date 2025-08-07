@@ -29,15 +29,15 @@ x-kestra-config: &kestra-config
         envVarsPrefix: ""
       secret:
         type: env
+      server:
+        basicAuth:
+          username: "leonardo@darwinai.com.br"
+          password: "@Atjlc151523"
     micronaut:
       server:
         port: 8081
         proxy-target-header: "X-Forwarded-Proto"
         proxy-forwarded-header: "X-Forwarded-For"
-        basic-auth:
-          enabled: true
-          username: "leonardo@darwinai.com.br"
-          password: "@Atjlc151523"
         cors:
           enabled: true
           configurations:
