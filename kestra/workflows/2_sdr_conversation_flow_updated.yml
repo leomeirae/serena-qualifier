@@ -200,8 +200,8 @@ tasks:
       IS_IMAGE: "{{ outputs.classify_media.vars.is_image | default(false) }}"
       EXTRACTED_TEXT: "{{ outputs.classify_media.vars.extracted_text | default('') }}"
 
-      # 🔗 Banco de Dados (PostgreSQL centralizado)
-      DB_CONNECTION_STRING: "{{ secret('DB_CONNECTION_STRING') }}"
+      # 🔗 Comunicação via MCP (sem necessidade de credenciais diretas)
+      # DB_CONNECTION_STRING, SUPABASE_URL e SUPABASE_KEY removidas - comunicação via MCP
 
       # 🌐 Serviços Internos
       SERENA_API_BASE_URL: "https://partnership-service-staging.api.srna.co"
@@ -209,24 +209,25 @@ tasks:
       PYTHONPATH: "/app"
 
     inputFiles:
-      scripts/agent_orchestrator.py: "{{ read('scripts/agent_orchestrator.py') }}"
-      scripts/agent_tools/knowledge_base_tool.py: "{{ read('scripts/agent_tools/knowledge_base_tool.py') }}"
-      scripts/agent_tools/faq_data.py: "{{ read('scripts/agent_tools/faq_data.py') }}"
-      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
-      scripts/agent_tools/supabase_tools.py: "{{ read('scripts/agent_tools/supabase_tools.py') }}"
-      scripts/agent_tools/supabase_agent_tools.py: "{{ read('scripts/agent_tools/supabase_agent_tools.py') }}"
-      scripts/agent_tools/whatsapp_tools.py: "{{ read('scripts/agent_tools/whatsapp_tools.py') }}"
-      scripts/agent_tools/ocr_tools.py: "{{ read('scripts/agent_tools/ocr_tools.py') }}"
-      scripts/lead_data_utils.py: "{{ read('scripts/lead_data_utils.py') }}"
-      scripts/__init__.py: "{{ read('scripts/__init__.py') }}"
-      scripts/agent_tools/__init__.py: "{{ read('scripts/agent_tools/__init__.py') }}"
+      scripts/agent_orchestrator.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_orchestrator.py') }}"
+      scripts/agent_tools/knowledge_base_tool.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/knowledge_base_tool.py') }}"
+      scripts/agent_tools/faq_data.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/faq_data.py') }}"
+      scripts/agent_tools/serena_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/supabase_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/supabase_tools.py') }}"
+      scripts/agent_tools/supabase_agent_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/supabase_agent_tools.py') }}"
+      scripts/agent_tools/whatsapp_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/whatsapp_tools.py') }}"
+      scripts/agent_tools/mcp_supabase_integration.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/mcp_supabase_integration.py') }}"
+      scripts/agent_tools/mcp_serena_integration.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/mcp_serena_integration.py') }}"
+      scripts/agent_tools/ocr_tools.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/ocr_tools.py') }}"
+      scripts/lead_data_utils.py: "{{ read('kestra/namespaces/serena.production/scripts/lead_data_utils.py') }}"
+      scripts/__init__.py: "{{ read('kestra/namespaces/serena.production/scripts/__init__.py') }}"
+      scripts/agent_tools/__init__.py: "{{ read('kestra/namespaces/serena.production/scripts/agent_tools/__init__.py') }}"
 
     script: |
       import sys
       sys.path.insert(0, '/app')
       import os
       import logging
-      import base64
       from kestra import Kestra
       
       print("[DEBUG] Iniciando script run_agent...")
@@ -240,8 +241,8 @@ tasks:
       
       print("[DEBUG] Logging configurado")
       
-      # Verificar variáveis de ambiente críticas
-      critical_env_vars = ['OPENAI_API_KEY', 'DB_CONNECTION_STRING', 'PHONE_NUMBER', 'USER_MESSAGE']
+      # Verificar variáveis de ambiente críticas (comunicação via MCP)
+      critical_env_vars = ['OPENAI_API_KEY', 'PHONE_NUMBER', 'USER_MESSAGE']
       for var in critical_env_vars:
           value = os.environ.get(var)
           if value:
@@ -249,35 +250,8 @@ tasks:
           else:
               print(f"[DEBUG] {var}: NÃO ENCONTRADO")
       
-      # Configuração das variáveis Supabase (decodificação base64)
-      supabase_url = os.environ.get('SUPABASE_URL')
-      supabase_key = os.environ.get('SUPABASE_KEY')
-      
-      print(f"[DEBUG] SUPABASE_URL presente: {bool(supabase_url)}")
-      print(f"[DEBUG] SUPABASE_KEY presente: {bool(supabase_key)}")
-      
-      # Decodificação base64 se necessário
-      if supabase_url and supabase_url.startswith("aHR0c"):
-          try:
-              supabase_url = base64.b64decode(supabase_url).decode("utf-8")
-              print("[DEBUG] SUPABASE_URL decodificado com sucesso")
-          except Exception as e:
-              print(f"[ERROR] Falha ao decodificar SUPABASE_URL: {e}")
-      
-      if supabase_key and supabase_key.startswith("ZXlKa"):
-          try:
-              supabase_key = base64.b64decode(supabase_key).decode("utf-8")
-              print("[DEBUG] SUPABASE_KEY decodificado com sucesso")
-          except Exception as e:
-              print(f"[ERROR] Falha ao decodificar SUPABASE_KEY: {e}")
-      
-      # Configura as variáveis para uso
-      if supabase_url and supabase_key:
-          os.environ['SUPABASE_URL'] = supabase_url
-          os.environ['SUPABASE_KEY'] = supabase_key
-          print("[DEBUG] SUPABASE_URL e SUPABASE_KEY configurados para Storage API")
-      else:
-          print("[WARNING] SUPABASE_URL ou SUPABASE_KEY não encontrados - usando PostgreSQL direto")
+      # Configuração MCP - comunicação via servidores MCP (sem credenciais diretas)
+      print("[DEBUG] Comunicação configurada via MCP Servers (Supabase, Serena, WhatsApp)")
       
       # Definir variáveis fora do bloco try para evitar problemas de escopo
       phone_number = os.environ.get('PHONE_NUMBER')
@@ -422,4 +396,4 @@ errors:
             "message": "Desculpe, tivemos um problema técnico. Retornarei em breve. 😊"
           }
         }
-      } 
+      }
