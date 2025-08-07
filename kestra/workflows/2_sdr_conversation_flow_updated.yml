@@ -363,7 +363,20 @@ tasks:
               'phone_number': phone_number
           })
 
-  # FASE 5: ENVIO DA RESPOSTA VIA WHATSAPP
+  # FASE 5: DEBUG - LOG ANTES DO ENVIO WHATSAPP
+  - id: debug_whatsapp_send
+    type: io.kestra.plugin.core.log.Log
+    description: "Debug antes do envio WhatsApp"
+    message: |
+      [DEBUG] PREPARANDO ENVIO WHATSAPP
+      ================================================
+      WhatsApp MCP URL: {{ vars.whatsapp_mcp_url }}
+      Phone: {{ outputs.extract_whatsapp_data.vars.phone }}
+      Response: {{ outputs.run_agent.vars.response | default('N/A') }}
+      Response Length: {{ outputs.run_agent.vars.response | length | default(0) }} chars
+      Timestamp: {{ now() }}
+
+  # FASE 5.5: ENVIO DA RESPOSTA VIA WHATSAPP
   - id: send_whatsapp_message
     type: io.kestra.plugin.core.http.Request
     description: "Envia resposta do agente via WhatsApp MCP (JSON-RPC)"
@@ -385,6 +398,18 @@ tasks:
         }
       }
     allowFailure: true
+
+  # FASE 5.7: DEBUG - LOG APÓS ENVIO WHATSAPP
+  - id: debug_whatsapp_result
+    type: io.kestra.plugin.core.log.Log
+    description: "Debug após envio WhatsApp"
+    message: |
+      [DEBUG] RESULTADO ENVIO WHATSAPP
+      ================================================
+      Status Code: {{ outputs.send_whatsapp_message.vars.statusCode | default('N/A') }}
+      Response Body: {{ outputs.send_whatsapp_message.vars.body | default('N/A') }}
+      Headers: {{ outputs.send_whatsapp_message.vars.headers | default('N/A') }}
+      Timestamp: {{ now() }}
 
   # FASE 6: LOG DE SUCESSO
   - id: log_success
@@ -415,6 +440,7 @@ tasks:
       Phone: {{ outputs.extract_whatsapp_data.vars.phone }}
       Agent Success: {{ outputs.run_agent.vars.success | default('N/A') }}
       WhatsApp Sent: {{ outputs.send_whatsapp_message.vars.statusCode | default('N/A') }}
+      WhatsApp Response: {{ outputs.send_whatsapp_message.vars.body | default('N/A') }}
       Duration: {{ execution.duration | default('N/A') }}
       Timestamp: {{ now() }}
 
