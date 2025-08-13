@@ -1,16 +1,13 @@
 id: 2_lead_reception_warmup
 namespace: serena.production
-description: "Recebe o webhook, salva a interação e dispara o processamento."
+description: "Deprecated: substituído por conversa_sdr"
 
 triggers:
   - id: whatsapp_webhook
     type: io.kestra.plugin.core.trigger.Webhook
-    key: "silvia_reception"
+    key: "__deprecated__"
 
 tasks:
-  - id: save_and_trigger_processing
-    type: io.kestra.plugin.core.flow.Subflow
-    namespace: serena.production
-    flowId: 3_lead_conversation_processing
-    inputs:
-      phone: "{{ trigger.body.phone ?? 'unknown' }}"
+  - id: noop
+    type: io.kestra.plugin.core.log.Log
+    message: "Este fluxo foi descontinuado. Use 'conversa_sdr'."
