@@ -1,0 +1,242 @@
+id: automatic_follow_up
+namespace: serena.production
+description: "Workflow automatizado para enviar follow-ups aos leads que não responderam"
+
+triggers:
+  - id: hourly_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 * * * *"  # Executa a cada hora
+    description: "Verifica leads pendentes de follow-up a cada hora"
+
+variables:
+  # Configurações de follow-up
+  follow_up_delay_hours: 2  # Horas de espera antes do primeiro follow-up
+  max_follow_ups: 3         # Máximo de follow-ups por lead
+  
+  # URLs dos MCP Servers
+  supabase_mcp_url: "http://supabase-mcp-server:3000"
+  whatsapp_mcp_url: "http://whatsapp-mcp-server:3003"
+
+tasks:
+  - id: log_start
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [FOLLOW-UP] Iniciando verificação de follow-ups
+      Timestamp: {{ now() }}
+
+  - id: check_pending_followups
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Busca leads que precisam de follow-up"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install kestra requests
+    env:
+      SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
+      FOLLOW_UP_DELAY_HOURS: "{{ vars.follow_up_delay_hours }}"
+    script: |
+      import os
+      import json
+      import requests
+      from datetime import datetime, timedelta
+      from kestra import Kestra
+      
+      supabase_url = os.getenv('SUPABASE_MCP_URL')
+      delay_hours = int(os.getenv('FOLLOW_UP_DELAY_HOURS', '2'))
+      
+      # Buscar leads que não responderam nas últimas X horas
+      cutoff_time = (datetime.now() - timedelta(hours=delay_hours)).isoformat()
+      
+      # Query para buscar leads pendentes
+      query = f"""
+      SELECT DISTINCT ON (l.phone_number) 
+        l.phone_number,
+        l.name,
+        l.conversation_state,
+        l.last_message_at,
+        l.total_messages,
+        (
+          SELECT COUNT(*) 
+          FROM follow_up_queue 
+          WHERE phone_number = l.phone_number 
+          AND status = 'SENT'
+        ) as follow_up_count,
+        (
+          SELECT MAX(created_at) 
+          FROM lead_messages 
+          WHERE phone_number = l.phone_number 
+          AND message_direction = 'user'
+        ) as last_user_message
+      FROM leads l
+      WHERE l.conversation_state NOT IN ('QUALIFIED', 'CONVERTED', 'LOST')
+      AND l.last_message_at < '{cutoff_time}'
+      AND (
+        SELECT COUNT(*) 
+        FROM follow_up_queue 
+        WHERE phone_number = l.phone_number 
+        AND status = 'SENT'
+      ) < 3
+      ORDER BY l.phone_number, l.last_message_at ASC
+      LIMIT 10
+      """
+      
+      try:
+          response = requests.post(
+              f"{supabase_url}/mcp",
+              json={
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "execute_sql",
+                      "arguments": {"query": query}
+                  }
+              }
+          )
+          response.raise_for_status()
+          result = response.json()
+          
+          leads = []
+          if result and 'result' in result and 'rows' in result['result']:
+              leads = result['result']['rows']
+          
+          print(f"[FOLLOW-UP] Encontrados {len(leads)} leads pendentes")
+          
+          Kestra.outputs({
+              "pending_leads": leads,
+              "count": len(leads)
+          })
+          
+      except Exception as e:
+          print(f"[ERROR] Erro ao buscar leads: {str(e)}")
+          Kestra.outputs({
+              "pending_leads": [],
+              "count": 0,
+              "error": str(e)
+          })
+
+  - id: send_followups
+    type: io.kestra.plugin.core.flow.EachParallel
+    description: "Envia follow-up para cada lead pendente"
+    value: "{{ outputs.check_pending_followups.vars.pending_leads }}"
+    tasks:
+      - id: send_individual_followup
+        type: io.kestra.plugin.scripts.python.Script
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+          image: python:3.11-slim
+        beforeCommands:
+          - pip install kestra requests
+        env:
+          LEAD_DATA: "{{ taskrun.value | toJson }}"
+          WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
+          SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
+        script: |
+          import os
+          import json
+          import requests
+          from datetime import datetime
+          from kestra import Kestra
+          
+          lead_data = json.loads(os.getenv('LEAD_DATA', '{}'))
+          whatsapp_url = os.getenv('WHATSAPP_MCP_URL')
+          supabase_url = os.getenv('SUPABASE_MCP_URL')
+          
+          phone = lead_data.get('phone_number')
+          name = lead_data.get('name', 'você')
+          state = lead_data.get('conversation_state', 'INITIAL')
+          follow_up_count = int(lead_data.get('follow_up_count', 0))
+          
+          # Definir mensagem baseada no estado e número de follow-ups
+          if follow_up_count == 0:
+              if state == 'INITIAL':
+                  message = f"Oi {name}! 👋 Vi que você se interessou por energia solar. Ainda posso te ajudar a economizar na conta de luz? 💡"
+              elif state == 'AWAITING_BILL':
+                  message = f"Oi {name}! 📸 Você estava prestes a enviar sua conta de luz para calcularmos sua economia. Ainda tem interesse?"
+              else:
+                  message = f"Oi {name}! 😊 Estava conversando com você sobre nossos planos de energia solar. Posso continuar te ajudando?"
+          elif follow_up_count == 1:
+              message = f"Olá {name}! 🌟 Não quero ser insistente, mas vi que você tem interesse em economizar com energia solar. Se preferir, posso te chamar em outro momento. É só me avisar! 😊"
+          else:
+              message = f"{name}, última tentativa! 😅 Se você ainda tiver interesse em energia solar, estou aqui. Caso contrário, agradeço seu tempo e fico à disposição quando precisar! 🌞"
+          
+          try:
+              # Enviar mensagem via WhatsApp
+              response = requests.post(
+                  f"{whatsapp_url}/mcp",
+                  json={
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/call",
+                      "params": {
+                          "name": "sendTextMessage",
+                          "arguments": {
+                              "to": phone,
+                              "message": message
+                          }
+                      }
+                  }
+              )
+              response.raise_for_status()
+              
+              # Registrar follow-up enviado
+              record_query = f"""
+              INSERT INTO follow_up_queue 
+              (phone_number, scheduled_at, status, follow_up_type, message_template, attempts) 
+              VALUES (
+                  '{phone}',
+                  NOW(),
+                  'SENT',
+                  'NO_RESPONSE',
+                  '{message.replace("'", "''")}',
+                  {follow_up_count + 1}
+              )
+              """
+              
+              requests.post(
+                  f"{supabase_url}/mcp",
+                  json={
+                      "jsonrpc": "2.0",
+                      "id": 2,
+                      "method": "tools/call",
+                      "params": {
+                          "name": "execute_sql",
+                          "arguments": {"query": record_query}
+                      }
+                  }
+              )
+              
+              print(f"[SUCCESS] Follow-up enviado para {phone}")
+              Kestra.outputs({
+                  "success": True,
+                  "phone": phone,
+                  "follow_up_number": follow_up_count + 1
+              })
+              
+          except Exception as e:
+              print(f"[ERROR] Erro ao enviar follow-up para {phone}: {str(e)}")
+              Kestra.outputs({
+                  "success": False,
+                  "phone": phone,
+                  "error": str(e)
+              })
+
+  - id: log_summary
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [FOLLOW-UP] Processo concluído
+      ================================================
+      Total de leads encontrados: {{ outputs.check_pending_followups.vars.count }}
+      Timestamp: {{ now() }}
+
+errors:
+  - id: error_handler
+    type: io.kestra.plugin.core.log.Log
+    level: ERROR
+    message: |
+      [ERROR] Erro no workflow de follow-up
+      ================================================
+      Erro: {{ execution.errorMessage }}
+      Task: {{ execution.taskRunId }}
+      Timestamp: {{ now() }}

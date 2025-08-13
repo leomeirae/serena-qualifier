@@ -1,0 +1,253 @@
+id: 2_whatsapp_message_handler
+namespace: serena.production
+description: "Workflow principal para processar mensagens do WhatsApp usando o agente SDR"
+
+triggers:
+  - id: whatsapp_webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "whatsapp_messages"
+    description: "Recebe mensagens do WhatsApp via webhook"
+
+variables:
+  # Configurações do agente
+  openai_model: "gpt-4o-mini"
+  max_tokens: 1500
+  temperature: 0.7
+  
+  # URLs dos MCP Servers
+  supabase_mcp_url: "http://supabase-mcp-server:3000"
+  serena_mcp_url: "http://serena-mcp-server:3002"
+  whatsapp_mcp_url: "http://whatsapp-mcp-server:3003"
+
+tasks:
+  - id: log_webhook
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [WEBHOOK] Mensagem WhatsApp recebida
+      Timestamp: {{ now() }}
+
+  - id: process_message
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Processa mensagem usando o agente SDR completo"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: kestra-agent:latest
+      networkMode: coolify
+    env:
+      # Webhook data
+      TRIGGER_BODY: "{{ trigger.body | toJson | default('{}') }}"
+      
+      # API Keys
+      OPENAI_API_KEY: "{{ secret('OPENAI_API_KEY') }}"
+      
+      # MCP URLs
+      SUPABASE_MCP_URL: "{{ vars.supabase_mcp_url }}"
+      SERENA_MCP_URL: "{{ vars.serena_mcp_url }}"
+      WHATSAPP_MCP_URL: "{{ vars.whatsapp_mcp_url }}"
+      
+      # Configurações do agente
+      OPENAI_MODEL: "{{ vars.openai_model }}"
+      MAX_TOKENS: "{{ vars.max_tokens }}"
+      TEMPERATURE: "{{ vars.temperature }}"
+      
+      # Python path
+      PYTHONPATH: "/app"
+    inputFiles:
+      scripts/__init__.py: |
+        # Scripts package
+      scripts/ai_sdr_agent.py: "{{ read('scripts/ai_sdr_agent.py') }}"
+      scripts/agent_tools/__init__.py: |
+        # Agent tools package
+      scripts/agent_tools/supabase_tools.py: "{{ read('scripts/agent_tools/supabase_tools.py') }}"
+      scripts/agent_tools/serena_tools.py: "{{ read('scripts/agent_tools/serena_tools.py') }}"
+      scripts/agent_tools/whatsapp_tools.py: "{{ read('scripts/agent_tools/whatsapp_tools.py') }}"
+      scripts/agent_tools/ocr_tools.py: "{{ read('scripts/agent_tools/ocr_tools.py') }}"
+      scripts/utils/__init__.py: |
+        # Utils package
+      scripts/utils/config.py: "{{ read('scripts/utils/config.py') }}"
+      scripts/utils/logger.py: "{{ read('scripts/utils/logger.py') }}"
+      scripts/utils/mcp_client.py: "{{ read('scripts/utils/mcp_client.py') }}"
+    script: |
+      import os
+      import sys
+      import json
+      from datetime import datetime
+      from kestra import Kestra
+      
+      sys.path.insert(0, '/app')
+      
+      # Importar o agente
+      from scripts.ai_sdr_agent import SerenaSDRAgent
+      from scripts.agent_tools.supabase_tools import SupabaseTools
+      from scripts.agent_tools.whatsapp_tools import WhatsAppTools
+      
+      print("[DEBUG] Iniciando processamento de mensagem WhatsApp")
+      
+      # Extrair dados do webhook
+      try:
+          webhook_data = json.loads(os.getenv('TRIGGER_BODY', '{}'))
+          
+          # Extrair mensagem
+          entry = webhook_data.get('entry', [{}])[0]
+          changes = entry.get('changes', [{}])[0]
+          value = changes.get('value', {})
+          messages = value.get('messages', [])
+          
+          if not messages:
+              print("[INFO] Webhook sem mensagens (provavelmente status)")
+              Kestra.outputs({
+                  "processed": False,
+                  "reason": "No messages in webhook"
+              })
+              sys.exit(0)
+          
+          message = messages[0]
+          phone_number = message.get('from', '')
+          message_type = message.get('type', 'text')
+          
+          # Extrair conteúdo baseado no tipo
+          if message_type == 'text':
+              message_text = message.get('text', {}).get('body', '')
+          elif message_type == 'interactive':
+              interactive = message.get('interactive', {})
+              if 'button_reply' in interactive:
+                  message_text = interactive['button_reply'].get('title', '')
+              elif 'list_reply' in interactive:
+                  message_text = interactive['list_reply'].get('title', '')
+              else:
+                  message_text = '[Interação recebida]'
+          elif message_type == 'image':
+              message_text = message.get('image', {}).get('caption', '[Imagem recebida]')
+              media_id = message.get('image', {}).get('id', '')
+          else:
+              message_text = f'[{message_type} recebido]'
+          
+          print(f"[INFO] Mensagem de {phone_number}: {message_text[:50]}...")
+          
+          # Inicializar ferramentas
+          supabase = SupabaseTools()
+          whatsapp = WhatsAppTools()
+          
+          # Registrar mensagem do usuário
+          try:
+              supabase.record_message(
+                  phone_number=phone_number,
+                  direction='user',
+                  content=message_text,
+                  message_type=message_type,
+                  media_id=media_id if message_type == 'image' else None
+              )
+          except:
+              pass  # Se falhar, continuar
+          
+          # Buscar dados do lead
+          lead_data = None
+          try:
+              # Buscar no banco
+              query = f"SELECT * FROM leads WHERE phone_number = '{phone_number}' LIMIT 1"
+              result = supabase._make_mcp_request("tools/call", {
+                  "name": "execute_sql",
+                  "arguments": {"query": query}
+              })
+              if result and "rows" in result and result["rows"]:
+                  lead_data = result["rows"][0]
+          except:
+              pass
+          
+          if not lead_data:
+              # Criar lead básico se não existir
+              lead_data = {
+                  'phone_number': phone_number,
+                  'name': 'Novo Lead',
+                  'conversation_state': 'INITIAL'
+              }
+              try:
+                  supabase.create_or_update_lead(lead_data)
+              except:
+                  pass
+          
+          # Executar agente
+          print("[INFO] Executando agente SDR...")
+          agent = SerenaSDRAgent()
+          
+          response = agent.run_agent(
+              lead_id=phone_number,
+              user_message=message_text,
+              message_type=message_type,
+              media_id=media_id if message_type == 'image' else None,
+              lead_data=lead_data,
+              conversation_state=lead_data.get('conversation_state', 'INITIAL')
+          )
+          
+          if response.get('success'):
+              response_text = response.get('response')
+              print(f"[INFO] Resposta gerada: {response_text[:100]}...")
+              
+              # Enviar resposta
+              try:
+                  whatsapp.send_text_message(phone_number, response_text)
+                  print("[SUCCESS] Mensagem enviada via WhatsApp")
+                  
+                  # Registrar resposta do bot
+                  supabase.record_message(
+                      phone_number=phone_number,
+                      direction='bot',
+                      content=response_text,
+                      message_type='text'
+                  )
+              except Exception as e:
+                  print(f"[ERROR] Erro ao enviar mensagem: {str(e)}")
+                  response['whatsapp_error'] = str(e)
+          else:
+              print(f"[ERROR] Falha no agente: {response.get('error')}")
+              
+              # Enviar mensagem de erro genérica
+              try:
+                  error_msg = "Desculpe, tive um problema técnico. Por favor, tente novamente em alguns instantes."
+                  whatsapp.send_text_message(phone_number, error_msg)
+              except:
+                  pass
+          
+          # Outputs
+          Kestra.outputs({
+              "processed": True,
+              "phone_number": phone_number,
+              "message_type": message_type,
+              "message_text": message_text[:100],
+              "agent_success": response.get('success', False),
+              "response_length": len(response.get('response', '')),
+              "error": response.get('error') if not response.get('success') else None
+          })
+          
+      except Exception as e:
+          print(f"[ERROR] Erro geral: {str(e)}")
+          import traceback
+          print(f"[ERROR] Traceback: {traceback.format_exc()}")
+          
+          Kestra.outputs({
+              "processed": False,
+              "error": str(e)
+          })
+
+  - id: log_result
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      [WEBHOOK] Processamento concluído
+      ================================================
+      Processado: {{ outputs.process_message.vars.processed }}
+      Telefone: {{ outputs.process_message.vars.phone_number | default('N/A') }}
+      Tipo: {{ outputs.process_message.vars.message_type | default('N/A') }}
+      Sucesso do agente: {{ outputs.process_message.vars.agent_success | default('N/A') }}
+      Erro: {{ outputs.process_message.vars.error | default('Nenhum') }}
+      Timestamp: {{ now() }}
+
+errors:
+  - id: global_error
+    type: io.kestra.plugin.core.log.Log
+    level: ERROR
+    message: |
+      [ERROR] Erro no processamento do webhook
+      ================================================
+      Erro: {{ execution.errorMessage }}
+      Task: {{ execution.taskRunId }}
+      Timestamp: {{ now() }}

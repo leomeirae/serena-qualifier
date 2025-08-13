@@ -1,8 +1,0 @@
-id: 3_lead_conversation_processing
-namespace: serena.production
-description: "Deprecated: substituído por conversa_sdr"
-
-tasks:
-  - id: noop
-    type: io.kestra.plugin.core.log.Log
-    message: "Este fluxo foi descontinuado. Use 'conversa_sdr'."
