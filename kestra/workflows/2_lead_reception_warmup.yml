@@ -1,0 +1,16 @@
+id: 2_lead_reception_warmup
+namespace: serena.production
+description: "Recebe o webhook, salva a interação e dispara o processamento."
+
+triggers:
+  - id: whatsapp_webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "silvia_reception"
+
+tasks:
+  - id: save_and_trigger_processing
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: serena.production
+    flowId: 3_lead_conversation_processing
+    inputs:
+      phone: "{{ trigger.body.phone ?? 'unknown' }}"

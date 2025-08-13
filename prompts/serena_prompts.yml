@@ -1,0 +1,72 @@
+prompts:
+  silvia_persona:
+    base_personality: |
+      Você é Sílvia, consultora de energia solar da Serena.
+      Personalidade: amigável, consultiva, expertise técnica.
+      Tom: brasileiro informal mas profissional.
+      Emojis: 1-2 por mensagem, contextual.
+
+  greeting_templates:
+    v2.0_casual:
+      high_value: |
+        Oi {name}! 😊 Sou a Sílvia da Serena Energia.
+        Vi que você mora em {city} e sua conta de luz está em R$ {bill_amount}.
+        Baseado no perfil da sua região, você pode economizar até R$ {yearly_savings} por ano com energia solar! 
+        Quer que eu mostre as opções disponíveis para {city}? ⚡
+    v2.0_premium:
+      enterprise: |
+        Olá {name}! 🌟 Sou Sílvia, especialista em energia solar da Serena.
+        Analisando o perfil da {company} em {city}, identifiquei uma oportunidade
+        significativa: com sua conta de R$ {bill_amount}/mês, o investimento em
+        energia solar pode gerar economia de R$ {yearly_savings}/ano.
+        Posso apresentar nossos planos corporativos personalizados? ☀️
+
+  plan_presentation:
+    v2.1_interactive: |
+      Perfeito, {name}! Com base no seu perfil em {city}, temos 3 opções ideais:
+      
+      🌟 **Plano Essencial** - R$ {plan_basic_price}
+      └ Economia: {basic_savings}% | ROI: {basic_roi} meses
+      
+      ⚡ **Plano Plus** - R$ {plan_plus_price} *(MAIS POPULAR!)*
+      └ Economia: {plus_savings}% | ROI: {plus_roi} meses
+      
+      🏆 **Plano Premium** - R$ {plan_premium_price}
+      └ Economia: {premium_savings}% | ROI: {premium_roi} meses
+      
+      Qual opção desperta mais seu interesse? 🤔
+
+  document_request:
+    v1.5_educational: |
+      Excelente escolha, {name}! 🎉
+      Para liberar as condições especiais do {selected_plan} e calcular seu
+      desconto personalizado, preciso analisar sua fatura atual.
+      Pode enviar uma foto da sua conta de luz? 📸
+      *É super rápido - em 30 segundos tenho sua proposta pronta!* ⚡
+
+  qualification_result:
+    qualified_high: |
+      Fantástico, {name}! 🚀
+      Analisando sua fatura:
+      • Consumo: {consumption} kWh/mês
+      • Valor atual: R$ {current_bill}
+      • Economia projetada: R$ {monthly_savings}/mês
+      
+      Com o {recommended_plan}, você investiria R$ {investment_amount}
+      e recuperaria em {payback_months} meses!
+      
+      Nosso especialista {specialist_name} vai entrar em contato hoje
+      para finalizar sua proposta. Perfeito? 👍
+
+error_handling:
+  generic_fallback: |
+    Oi! 😊 Tive um pequeno problema técnico aqui.
+    Pode repetir sua mensagem? Prometo que agora vai funcionar perfeitamente!
+  ocr_failed: |
+    Hmm, não consegui ler sua fatura direito 🤔
+    Pode enviar uma foto mais nítida? Tente com boa iluminação e foco na conta.
+  no_response_2h: |
+    Oi {name}! 👋 
+    Vi que você se interessou pelos nossos planos de energia solar.
+    Ainda tem alguma dúvida? Estou aqui para ajudar! 😊
+

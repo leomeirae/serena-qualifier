@@ -2,7 +2,7 @@
 
 ## 📋 Visão Geral
 
-Este é um servidor MCP (Model Context Protocol) que permite que assistentes de IA interajam com a API de Parcerias da Serena através de ferramentas estruturadas. O servidor está disponível no endpoint: **http://mwc8k8wk0wg8o8s4k0w8scc4.157.180.32.249.sslip.io/**
+Este é um servidor MCP (Model Context Protocol) que permite que assistentes de IA interajam com a API de Parcerias da Serena através de ferramentas estruturadas. O servidor está disponível no endpoint: **http://rksw4o0ck8800ock00ck8w40.157.180.32.249.sslip.io/**
 
 ### 🎯 Objetivo
 Fornecer uma interface padronizada para que agentes de IA possam:

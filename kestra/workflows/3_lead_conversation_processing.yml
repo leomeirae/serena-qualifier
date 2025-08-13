@@ -1,0 +1,82 @@
+id: 3_lead_conversation_processing
+namespace: serena.production
+description: "Processa o lead, gera saudação com IA e envia a resposta."
+
+inputs:
+  - id: phone
+    type: STRING
+    required: true
+    defaults: "unknown"
+
+variables:
+  SUPABASE_URL: "http://supabase-mcp-server:3000"
+  WHATSAPP_URL: "http://whatsapp-mcp-server:3003"
+  SERENA_URL: "http://serena-mcp-server:3002"
+
+tasks:
+  - id: log_start
+    type: io.kestra.plugin.core.log.Log
+    message: "Starting lead processing for phone: {{ inputs.phone }}"
+
+  - id: get_lead_profile
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ vars.SUPABASE_URL }}/mcp"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: >-
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "execute_sql",
+          "arguments": {
+            "query": "SELECT name, city, state FROM leads WHERE phone_number = '{{ inputs.phone }}' LIMIT 1"
+          }
+        }
+      }
+
+  - id: generate_simple_greeting
+    type: io.kestra.plugin.scripts.python.Script
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    beforeCommands:
+      - pip install kestra
+    script: |
+      from kestra import Kestra
+      
+      # Simples saudação fixa
+      greeting = "Olá! Sou a Sílvia da Serena Energia. Como posso te ajudar hoje?"
+      
+      Kestra.outputs({"greeting": greeting})
+
+  - id: send_whatsapp_message
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ vars.WHATSAPP_URL }}/mcp"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: >-
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "sendTextMessage",
+          "arguments": {
+            "to": "{{ inputs.phone }}",
+            "message": "{{ outputs.generate_simple_greeting.vars.greeting }}"
+          }
+        }
+      }
+
+  - id: log_success
+    type: io.kestra.plugin.core.log.Log
+    message: "Message sent successfully to {{ inputs.phone }}"
+
+errors:
+  - id: log_error
+    type: io.kestra.plugin.core.log.Log
+    message: "Error processing lead {{ inputs.phone }}: Generic error occurred"

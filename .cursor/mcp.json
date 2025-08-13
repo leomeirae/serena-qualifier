@@ -112,7 +112,9 @@
       ],
       "env": {
         "KESTRA_BASE_URL": "https://kestra.darwinai.com.br/api/v1",
-        "KESTRA_MCP_DISABLED_TOOLS": "ee"
+        "KESTRA_MCP_DISABLED_TOOLS": "ee",
+        "KESTRA_USER": "leonardo@darwinai.com.br",
+        "KESTRA_PASSWORD": "@Atjlc151523"
       }
     },
     "Context7": {
